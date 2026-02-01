@@ -6,20 +6,17 @@
 #include <mutex>
 #include <filesystem>
 #include <iostream>
+#include <cstring>      // strerror
 #include <fcntl.h>      // open, O_WRONLY...
 #include <unistd.h>     // dup2, close, STDOUT_FILENO
 
 namespace SST {
     
-    class Logger{
-        public:
-
-        // 로그설정 초기화
-        // 로그 디렉토리 생성시도
-        // dup2를 사용하여 stdout과 stderr를 지정된 파일로 리다이렉트
+    class Logger {
+    public:
         static bool init(std::string_view log_path){
-            std::lock_guard<std::mutex> lock(mutex_); // 스레드 안전성 확보
-            if(log_path.empty()) return true;
+            std::lock_guard<std::mutex> lock(mutex_);
+            if(log_path.empty()) return false; // 경로 없으면 실패 처리
 
             if(!makeLogPath(log_path)){
                 std::cerr << "[Logger] Failed to create log directory." << std::endl;
@@ -33,23 +30,27 @@ namespace SST {
             return true;
         }
 
-        private:
+    private:
+        static inline std::mutex mutex_;
+
         static bool redirectOutput(std::string_view log_path){
-            if(log_path.empty()) {
-                std::cerr << "[Logger]Log path is empty, plz check config." << std::endl;
+            // 1. 로그 파일 열기
+            int fd = open(std::string(log_path).c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if(fd == -1) {
+                std::cerr << "[Logger] Failed to open log file: " << strerror(errno) << std::endl;
                 return false;
             }
-            int fd = open(std::string(log_path).c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644); // 0644 -> rw-r--r--
-            if(fd == -1) return false;
 
-            // stdout을 파일 디스크립터로 리다이렉트
+            // 2. STDOUT 리다이렉트
             if(dup2(fd, STDOUT_FILENO) == -1){
+                std::cerr << "[Logger] Failed to dup2 stdout: " << strerror(errno) << std::endl;
                 close(fd);
                 return false;
             }
 
-            // stderr을 파일 디스크립터로 리다이렉트
+            // 3. STDERR 리다이렉트
             if(dup2(fd, STDERR_FILENO) == -1){
+                std::cerr << "[Logger] Failed to dup2 stderr: " << strerror(errno) << std::endl;
                 close(fd);
                 return false;
             }
@@ -58,24 +59,19 @@ namespace SST {
         }
 
         static bool makeLogPath(std::string_view log_path){
-            // 로그 경로에서 디렉토리 경로와 로그파일 이름 분리
             std::filesystem::path path(log_path);
             std::filesystem::path dir = path.parent_path();
             try {
-                if(!dir.empty() && !std::filesystem::exists(dir)){ // 디렉토리가 존재하지 않으면 생성
+                if(!dir.empty() && !std::filesystem::exists(dir)){
                     std::filesystem::create_directories(dir);
                 }
                 return true;
-            } catch (...){
-                std::cerr << "[Logger] Filesystem error." << std::endl;
+            } catch (const std::filesystem::filesystem_error& e) {
+                std::cerr << "[Logger] Filesystem error: " << e.what() << std::endl;
                 return false;
             }
         }
-
-        private:
-        static inline std::mutex mutex_;
     };
 }
-
 
 #endif
