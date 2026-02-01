@@ -6,7 +6,6 @@
 #include <fstream>
 #include <algorithm>
 #include <string_view>
-#include <iostream>
 #include <mutex>
 
 // 이 상대경로 문제는 좀더 고민해볼 것...
@@ -17,8 +16,9 @@ namespace SST {
         using SectionMap = std::map<std::string, std::string>;
         using ConfigMap = std::map<std::string, SectionMap>;
         
+        // 설정 파일 로드
+        // 첫 실행시 단 한번만 호출할 것
         static bool load(const std::string& filename){
-            std::lock_guard<std::mutex> lock(config_mutex_);
             config_data_.clear();
             std::ifstream file(filename);
             if(!file.is_open()) return false;
@@ -35,16 +35,19 @@ namespace SST {
                 if(vline.front() == '[' && vline.back() == ']'){
                     current_section = std::string(vline.substr(1, vline.size() - 2));
                     continue;
+                } else {
+                    std::cout << "Invalid Section Header: " << vline << std::endl;
+                    return false;
                 }
 
                 // 키-값 파싱
                 size_t delim_pos = vline.find('=');
                 if(delim_pos != std::string::npos){
-                    std::string key = std::string(trim(vline.substr(0, delim_pos)));
-                    std::string value = std::string(trim(vline.substr(delim_pos + 1)));
+                    auto key = trim(vline.substr(0, delim_pos));
+                    auto value = trim(vline.substr(delim_pos + 1));
                     
                     if(!current_section.empty()){
-                        config_data_[current_section][key] = value;
+                        config_data_[current_section].emplace(key, trim(vline.substr(delim_pos + 1)));
                     }
                 }
             }
@@ -54,7 +57,6 @@ namespace SST {
         // string값 가져오기
         static std::string getString(const std::string& section, const std::string& key, const std::string& default_value = ""){
             if(config_data_.empty()) return default_value;
-            std::lock_guard<std::mutex> lock(config_mutex_);
             if(config_data_.find(section) != config_data_.end()){
                 if(config_data_[section].find(key) != config_data_[section].end()){
                     return config_data_[section][key];
@@ -69,7 +71,7 @@ namespace SST {
             std::string value = getString(section, key);
             if(value.empty()) return default_value;
             try {
-                return stoi(value, nullptr, 10);
+                return stoi(value);
             } catch(const std::exception&){
                 return default_value;
             }
@@ -78,12 +80,15 @@ namespace SST {
         
 
     private:
-        static inline std::mutex config_mutex_;
         static inline ConfigMap config_data_;    
         static std::string_view trim(std::string_view s){
-            s.remove_prefix(std::min(s.find_first_not_of(" \t\n\r\f\v"), s.size()));
-            s.remove_suffix(s.size() - std::min(s.find_last_not_of(" \t\n\r\f\v") + 1, s.size()));
-            return s;
+            constexpr auto whitespace = " \t\n\r\f\v";
+            const auto first = s.find_first_not_of(whitespace);
+            if (first == std::string_view::npos) {
+                return std::string_view{};
+            }
+            const auto last = s.find_last_not_of(whitespace);
+            return s.substr(first, last - first + 1);
         }
     };
 }
