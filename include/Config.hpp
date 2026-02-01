@@ -4,11 +4,12 @@
 #include <string>
 #include <map>
 #include <fstream>
-#include <sstream>
 #include <algorithm>
 #include <string_view>
 #include <iostream>
+#include <mutex>
 
+// 이 상대경로 문제는 좀더 고민해볼 것...
 constexpr std::string_view CONFIG_FILE_PATH = "../config/sstd.ini";
 namespace SST {
     class Config {
@@ -17,6 +18,8 @@ namespace SST {
         using ConfigMap = std::map<std::string, SectionMap>;
         
         static bool load(const std::string& filename){
+            std::lock_guard<std::mutex> lock(config_mutex_);
+            config_data_.clear();
             std::ifstream file(filename);
             if(!file.is_open()) return false;
             std::string line;
@@ -50,6 +53,8 @@ namespace SST {
         
         // string값 가져오기
         static std::string getString(const std::string& section, const std::string& key, const std::string& default_value = ""){
+            if(config_data_.empty()) return default_value;
+            std::lock_guard<std::mutex> lock(config_mutex_);
             if(config_data_.find(section) != config_data_.end()){
                 if(config_data_[section].find(key) != config_data_[section].end()){
                     return config_data_[section][key];
@@ -60,11 +65,12 @@ namespace SST {
 
         // int값 가져오기
         static int getInt(const std::string& section, const std::string& key, int default_value = 0){
+            if(config_data_.empty()) return default_value;
             std::string value = getString(section, key);
             if(value.empty()) return default_value;
             try {
-                return stoi(value);
-            } catch(...) {
+                return stoi(value, nullptr, 10);
+            } catch(const std::exception&){
                 return default_value;
             }
         }
@@ -72,6 +78,7 @@ namespace SST {
         
 
     private:
+        static inline std::mutex config_mutex_;
         static inline ConfigMap config_data_;    
         static std::string_view trim(std::string_view s){
             s.remove_prefix(std::min(s.find_first_not_of(" \t\n\r\f\v"), s.size()));
@@ -82,4 +89,4 @@ namespace SST {
 }
 
 
-#endif// #define CONFIG_HPP
+#endif // CONFIG_HPP
