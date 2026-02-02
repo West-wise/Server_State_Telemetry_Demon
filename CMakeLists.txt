@@ -23,7 +23,6 @@ include_directories(
 # 소스 파일 설정
 set(SOURCES
     main.cpp
-    src/log.cpp
     src/TcpServer.cpp
     src/SystemReader.cpp
     src/PacketUtil.cpp
