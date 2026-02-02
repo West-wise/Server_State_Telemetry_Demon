@@ -6,6 +6,7 @@
 #include <fstream>
 #include <algorithm>
 #include <string_view>
+#include <iostream>
 #include <mutex>
 
 // 이 상대경로 문제는 좀더 고민해볼 것...
@@ -26,7 +27,7 @@ namespace SST {
             std::string current_section;
             while(getline(file, line)){
                 // 공백 제거
-                std::string_view vline = trim(line);
+                auto vline = trim(line);
                 
                 // 빈줄 혹은 주석 무시
                 if(vline.empty() || vline[0] == '#' || vline[0] == ';') continue;
@@ -35,9 +36,6 @@ namespace SST {
                 if(vline.front() == '[' && vline.back() == ']'){
                     current_section = std::string(vline.substr(1, vline.size() - 2));
                     continue;
-                } else {
-                    std::cout << "Invalid Section Header: " << vline << std::endl;
-                    return false;
                 }
 
                 // 키-값 파싱
@@ -47,7 +45,8 @@ namespace SST {
                     auto value = trim(vline.substr(delim_pos + 1));
                     
                     if(!current_section.empty()){
-                        config_data_[current_section].emplace(key, trim(vline.substr(delim_pos + 1)));
+                        std::cout << "Config Load: [" << current_section << "] " << key << " = " << value << "\n";
+                        config_data_[current_section].emplace(key, value);
                     }
                 }
             }
@@ -85,7 +84,7 @@ namespace SST {
             constexpr auto whitespace = " \t\n\r\f\v";
             const auto first = s.find_first_not_of(whitespace);
             if (first == std::string_view::npos) {
-                return std::string_view{};
+                return {};
             }
             const auto last = s.find_last_not_of(whitespace);
             return s.substr(first, last - first + 1);
