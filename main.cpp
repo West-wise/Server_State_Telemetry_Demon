@@ -27,22 +27,22 @@ std::vector<uint8_t> loadKeyFile(const std::string_view filepath){
 int main(){
     
     if(!SST::Config::load(std::string(CONFIG_FILE_PATH))){
-        std::cerr << "Failed to load config file." << "\n";
+        std::cerr << "Failed to load config file." << std::endl;
         return -1;
     }
 
     int port = SST::Config::getInt("server", "port");
-    std::cout << "Configured to use port: " << port << "\n";
+    std::cout << "Configured to use port: " << port << std::endl;
     std::string log_path = SST::Config::getString("log", "path");
-    std::cout << "Configured to use log path: " << log_path << "\n";
+    std::cout << "Configured to use log path: " << log_path << std::endl;
     std::string hmac_key_path = SST::Config::getString("security", "hmac_key");
-    std::cout << "Configured to use HMAC key path: " << hmac_key_path << "\n";
+    std::cout << "Configured to use HMAC key path: " << hmac_key_path << std::endl;
 
     // demonize 설정
 
     // 모든 설정이 끝난 후 디스크립터 이동
     if(!SST::Logger::init(log_path)){
-        std::cerr << "[Logger] Logger initialization failed." << "\n";
+        std::cerr << "[Logger] Logger initialization failed." << std::endl;
         return -1;
     };
 
