@@ -2,9 +2,10 @@
 #define PROTOCOL_HPP
 
 #include <cstdint>
+#include <arpa/inet.h>
 
 namespace SST {
-    constexpr uint16_t MAGIC_NUMBER = 0X3257; // 2W
+    constexpr uint32_t MAGIC_NUMBER = 0x53535444; // SSTD
     constexpr int HMAC_TAG_SIZE = 16;
 
     enum class MessageType : uint8_t {
@@ -16,7 +17,7 @@ namespace SST {
 
     #pragma pack(push, 1)
     struct SecureHeader {
-        uint16_t magic;           // 0x3257
+        uint32_t magic;           // 0x53535444
         uint8_t  version;         // 0x01
         uint8_t  type;            // MessageType
         uint16_t client_id;       // 1:N 식별자
@@ -25,7 +26,7 @@ namespace SST {
         uint64_t timestamp;       // Replay 방지 (Unix MS)
         uint32_t body_len;        // Payload 길이
         uint8_t  auth_tag[HMAC_TAG_SIZE]; // HMAC-SHA256 (Truncated)
-    };
+    } __attribute__((packed));
 
 
     struct SystemStats {
@@ -44,7 +45,7 @@ namespace SST {
         uint32_t uptime_secs;
     };
     #pragma pack(pop)
-    static_assert(sizeof(SecureHeader) == 40, "SecureHeader size mismatch");
+    static_assert(sizeof(SecureHeader) == 42, "SecureHeader size mismatch");
     static_assert(sizeof(SystemStats) == 24, "SystemStats size mismatch");
 }
 
