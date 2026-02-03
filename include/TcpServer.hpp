@@ -44,9 +44,11 @@ namespace SST {
         // 서버 실행
         void run();
 
+        void sendResponse(int client_fd, uint16_t cmd, const std::vector<uint8_t>& data);
+
     private:
 
-        constexpr const std::string SECRET_KEY = "sstd_tmp_secret_key_2026"; // 임시값임, 이건 나중에 반드시 config나 다른 방식으로 읽어오는 방식으로 대체할 것
+        const std::string SECRET_KEY = "sstd_tmp_secret_key_2026"; // 임시값임, 이건 나중에 반드시 config나 다른 방식으로 읽어오는 방식으로 대체할 것
 
         int port_;      // 서버 포트
         SST::FD server_fd_; // 리스닝 소켓
@@ -69,6 +71,8 @@ namespace SST {
         void handleClientData(int client_fd);  // 클라이언트 데이터 처리
         void handleDisconnect(int client_fd); // 연결 종료 처리
         void setNonBlocking(int fd); // 논블로킹모드 설정 
+        void handleWrite(int client_fd);    // 쓰기 이벤트 처리
+        void updateEpollEvents(int fd, uint32_t events); // epoll 이벤트를 변경 ( EPOLLIN <-> EPOLLIN | EPOLLOUT )
 
         bool processPacket(int client_fd, std::vector<uint8_t>& buffer);
     };
