@@ -45,7 +45,7 @@ namespace SST {
                     auto value = trim(vline.substr(delim_pos + 1));
                     
                     if(!current_section.empty()){
-                        std::cout << "Config Load: [" << current_section << "] " << key << " = " << value << "\n";
+                        std::cout << "Config Load: [" << current_section << "] " << key << " = " << value << std::endl;
                         config_data_[current_section].emplace(key, value);
                     }
                 }
