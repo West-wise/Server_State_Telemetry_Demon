@@ -2,6 +2,7 @@
 #define TCPSERVER_HPP
 
 #include "FileDescriptor.hpp"
+#include "CircularBuffer.hpp"
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <sys/epoll.h>
@@ -23,12 +24,11 @@ namespace SST {
         ClientInfo() = default;
     };
     struct ClientState {
-        std::vector<uint8_t> read_buffer;
-        std::vector<uint8_t> write_buffer;
-        size_t write_offset = 0;
-        size_t bytes_read = 0;
-        size_t bytes_written = 0;
+        SST::CircularBuffer read_buffer;
+        SST::CircularBuffer write_buffer;
         uint32_t last_seq = 0;
+        
+        ClientState() : read_buffer(8192), write_buffer(8192) {}
     };
 
     class TcpServer { 
@@ -43,6 +43,9 @@ namespace SST {
 
         // 서버 실행
         void run();
+        
+        // 시그널 핸들링을 위한 종료 플래그 설정
+        void setStopFlag(volatile sig_atomic_t* flag) { stop_flag_ = flag; }
 
         void sendResponse(int client_fd, uint16_t cmd, const std::vector<uint8_t>& data);
 
@@ -54,6 +57,7 @@ namespace SST {
         SST::FD server_fd_; // 리스닝 소켓
         SST::FD epoll_fd_;  // epoll 인스턴스
         std::atomic<bool> is_running_{false}; 
+        volatile sig_atomic_t* stop_flag_ = nullptr;
         
         static const int MAX_EVENTS = 64; // 최대 이벤트 수
         struct epoll_event events[MAX_EVENTS];
