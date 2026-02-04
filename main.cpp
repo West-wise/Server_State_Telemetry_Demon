@@ -6,51 +6,68 @@
 #include "Logger.hpp"
 #include <vector>
 #include <csignal>
+#include <iostream>
 
-// 시그널 핸들러 등록
-// Daemon이지만 kill명령어를 통해서 종료 신호를 받을 수 있기때문에 시그널 핸들러를 등록해둠
+// Signal handling
+volatile sig_atomic_t g_stop_signal = 0;
 
-
-// 파일에서 바이너리 키 데이터 로드
-std::vector<uint8_t> loadKeyFile(const std::string_view filepath){
-    std::ifstream file(std::string(filepath), std::ios::binary | std::ios::ate); // 맨 끝으로 이동
-    if(!file.is_open()) return {};
-
-    std::streamsize size = file.tellg(); // 크기 측정
-    file.seekg(0, std::ios::beg); // 처음으로 이동
-
-    std::vector<uint8_t> buffer(size);
-    if(file.read((char*)buffer.data(), size)) return buffer;
-    return {};
+void handle_signal(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        g_stop_signal = 1;
+    }
 }
 
-int main(){
-    
-    if(!SST::Config::load(std::string(CONFIG_FILE_PATH))){
-        std::cerr << "Failed to load config file." << std::endl;
+int main(int argc, char* argv[]) {
+    // 시그널 등록
+    std::signal(SIGINT, handle_signal);
+    std::signal(SIGTERM, handle_signal);
+
+    // Config 로드 (argv 지원)
+    std::string config_path = (argc > 1) ? argv[1] : std::string(CONFIG_FILE_PATH);
+    if (!SST::Config::load(config_path)) {
+        std::cerr << "Failed to load config file: " << config_path << std::endl;
         return -1;
     }
 
-    int port = SST::Config::getInt("server", "port");
-    std::cout << "Configured to use port: " << port << std::endl;
-    std::string log_path = SST::Config::getString("log", "path");
-    std::cout << "Configured to use log path: " << log_path << std::endl;
-    std::string hmac_key_path = SST::Config::getString("security", "hmac_key");
-    std::cout << "Configured to use HMAC key path: " << hmac_key_path << std::endl;
+    // 설정 값 읽기
+    int port = SST::Config::getInt("server", "port", 41924);
+    std::string log_path = SST::Config::getString("log", "path", "logs/sstd.log");
 
-    // demonize 설정
-
-    // 모든 설정이 끝난 후 디스크립터 이동
-    if(!SST::Logger::init(log_path)){
-        std::cerr << "[Logger] Logger initialization failed." << std::endl;
+    // Async Logger 초기화
+    if (!SST::Logger::init(log_path)) {
+        std::cerr << "[Server] Logger init failed." << std::endl;
         return -1;
-    };
+    }
+    SST::Logger::log("[Server] Server starting...");
 
-    // 실행
-    SST::TcpServer sstd(port);
-    std::cout << "Starting Server State Telemetry Daemon on port " << port << "...\n";
-    sstd.run();
+    // SystemReader 시작 (시스템 정보 수집 스레드)
+    SST::SystemReader::getInstance().start();
+    SST::Logger::log("[Server] SystemReader started.");
 
+    // TCP Server 실행 (Main Thread)
+    try {
+        SST::TcpServer sstd(port);
+        SST::Logger::log("[Server] TCP Server Listening on port " + std::to_string(port));
+        
+        // 메인 루프에서 시그널 체크를 위해 timeout이 있는 runWithTimeout 혹은 외부 flag 참조 필요
+        // 여기서는 TcpServer::run() 내부를 수정하여 g_stop_signal을 체크하거나
+        // run()이 블로킹이므로, 별도 처리가 필요함.
+        // 가장 깔끔한 방법: TcpServer에 atomic pointer를 넘겨주거나, stop 메서드 호출.
+        // 하지만 signal handler는 제한적이므로 g_stop_signal을 모니터링해야 함.
+        
+        // TcpServer::run()을 호출하면 control을 뺏기므로, 
+        // TcpServer가 주기적으로 g_stop_signal을 확인하도록 수정 필요.
+        // 임시로 sstd 인스턴스에 전역 플래그 주소 전달 또는 getter 사용.
+        sstd.setStopFlag(&g_stop_signal);
+        sstd.run();
+    } catch (const std::exception& e) {
+        SST::Logger::log(std::string("[Server] Exception: ") + e.what());
+    }
+
+    SST::Logger::log("[Server] Shutdown sequence initiated...");
+
+    // Cleanup
+    SST::SystemReader::getInstance().stop();
+    SST::Logger::shutdown();
     return 0;
-
 }
