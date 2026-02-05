@@ -21,11 +21,16 @@ namespace SST
 {
     TcpServer::TcpServer(int port) : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1)
     {
-        // Config에서 키 로드 (기본값 설정이나 에러처리는 정책에 따라 결정)
-        secret_key_ = Config::getString("security", "hmac_key", "default_insecure_key");
-        if (secret_key_ == "default_insecure_key") {
-            SST::Logger::log("[Warning] Using Insecure Default Key! Please check config/sstd.ini");
-        } 
+        // 7. Config에서 키 로드 (필수 검증)
+        secret_key_ = Config::getString("security", "hmac_key", "");
+        if (secret_key_.empty() || secret_key_ == "default_insecure_key") {
+            // [FATAL] 키 미설정 시 실행 거부 (보안 필수)
+            std::cerr << "[FATAL] No secure HMAC key configured in config/sstd.ini!" << std::endl;
+            throw std::runtime_error("Insecure configuration - server refused to start");
+        } else {
+            SST::Logger::log("[Server] Secure HMAC Key Loaded.");
+        }
+
         initSocket();
         initEpoll();
         initTimer(); 
@@ -180,13 +185,17 @@ namespace SST
         // 브로드캐스트용 바디 생성
         std::vector<uint8_t> body(sizeof(SystemStats));
         std::memcpy(body.data(), &stats, sizeof(SystemStats));
+        std::vector<uint8_t> pkt = PacketUtil::createPacket(0x20, 0, body, secret_key_);
 
         // 각 클라이언트마다 패킷 생성 (각자 시퀀스가 다르므로 개별 생성)
         for (auto& [fd, client_info] : clients_) {
-            
-            // 인증된 클라이언트에게만 전송
             if(!client_info.authenticated) continue;
-            ClientState& state = client_states_[fd];
+            
+            auto state_it = client_states_.find(fd);
+            if (state_it == client_states_.end()) continue; // 상태가 없으면 스킵
+
+            ClientState& state = state_it->second;
+            
             std::vector<uint8_t> packet = PacketUtil::createPacket(0x20, state.last_seq++, body, secret_key_); 
 
             if (!state.write_buffer.write(packet.data(), packet.size())) continue;
@@ -309,9 +318,15 @@ namespace SST
         }
         using namespace std::chrono;
         uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        uint64_t pkt_ts = header->timestamp;    
-        uint64_t diff = (now_ms > pkt_ts) ? (now_ms - pkt_ts) : (pkt_ts - now_ms);
+        uint64_t pkt_ts = header->timestamp;
         
+        // 5. 미래 타임스탬프 거부 (1초 오차 허용) 및 만료 검사 (5초)
+        if (pkt_ts > now_ms + 1000) {
+             SST::Logger::log("[Security] Future timestamp rejected from " + clients_[client_fd].ip_address);
+             return false;
+        }
+
+        uint64_t diff = now_ms - pkt_ts; // 위에서 미래 시간 걸러냈으므로 안전함
         if (diff > 5000) {
             SST::Logger::log("[Security] Replay Attack Detected (Timestamp Expired) from " + clients_[client_fd].ip_address);
             return false;
