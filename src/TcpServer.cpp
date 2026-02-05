@@ -15,21 +15,32 @@
 #include <netinet/in.h>
 #include <sys/socket.h> 
 #include <stdexcept>
+#include <atomic>
 #include <sys/timerfd.h>
 
 namespace SST
 {
+    
+    static std::string hexToBytes(const std::string& hex) {
+        std::string bytes;
+        for (unsigned int i = 0; i < hex.length(); i += 2) {
+            std::string byteString = hex.substr(i, 2);
+            char byte = (char)strtol(byteString.c_str(), NULL, 16);
+            bytes.push_back(byte);
+        }
+        return bytes;
+    }
+
     TcpServer::TcpServer(int port) : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1)
     {
         // 7. Config에서 키 로드 (필수 검증)
-        secret_key_ = Config::getString("security", "hmac_key", "");
-        if (secret_key_.empty() || secret_key_ == "default_insecure_key") {
-            // [FATAL] 키 미설정 시 실행 거부 (보안 필수)
+        std::string hex_key = Config::getString("security", "hmac_key", "");
+        if (hex_key.empty()) {
             std::cerr << "[FATAL] No secure HMAC key configured in config/sstd.ini!" << std::endl;
             throw std::runtime_error("Insecure configuration - server refused to start");
-        } else {
-            SST::Logger::log("[Server] Secure HMAC Key Loaded.");
-        }
+        } 
+        
+        secret_key_ = hexToBytes(hex_key);
 
         initSocket();
         initEpoll();
@@ -305,7 +316,7 @@ namespace SST
     bool TcpServer::processPacket(int client_fd, std::vector<uint8_t>& packet)
     {
         SecureHeader* header = (SecureHeader*)packet.data();
-        
+
         // HMAC Verification
         uint8_t tag[HMAC_TAG_SIZE];
         std::memcpy(tag, header->auth_tag, HMAC_TAG_SIZE);  
