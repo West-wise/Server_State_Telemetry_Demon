@@ -51,8 +51,9 @@ namespace SST {
         }
 
         static void log(const std::string& msg) {
-            if (instance_) {
+            {
                 std::lock_guard<std::mutex> lock(queue_mutex_);
+                if (!instance_) return;
                 log_queue_.push(msg);
             }
             cv_.notify_one();
