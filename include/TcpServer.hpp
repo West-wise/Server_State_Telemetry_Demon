@@ -51,11 +51,15 @@ namespace SST {
 
     private:
 
-        const std::string SECRET_KEY = "sstd_tmp_secret_key_2026"; // 임시값임, 이건 나중에 반드시 config나 다른 방식으로 읽어오는 방식으로 대체할 것
+    private:
+        
+        std::string secret_key_; // Config에서 로드된 비밀키
+
 
         int port_;      // 서버 포트
         SST::FD server_fd_; // 리스닝 소켓
         SST::FD epoll_fd_;  // epoll 인스턴스
+        SST::FD timer_fd_;  // 타이머 파일 디스크립터
         std::atomic<bool> is_running_{false}; 
         volatile sig_atomic_t* stop_flag_ = nullptr;
         
@@ -71,6 +75,8 @@ namespace SST {
 
         void initSocket();                  // 소켓 생성 및 초기화
         void initEpoll();                   // epoll 인스턴스 생성
+        void initTimer();                   // 타이머 초기화
+        void broadcastStats();              // 모든 클라이언트에게 데이터 브로드캐스트
         void acceptConnection();            // 새 클라이언트 접속 처리
         void handleClientData(int client_fd);  // 클라이언트 데이터 처리
         void handleDisconnect(int client_fd); // 연결 종료 처리
