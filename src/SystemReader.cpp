@@ -100,6 +100,9 @@ namespace SST {
             else if (key == "MemFree:") free_mem = value; // Available을 쓰는게 더 정확함
             else if (key == "MemAvailable:") available_mem = value;
         }
+        if (available_mem == 0) {
+            available_mem = free_mem;
+        }
 
         if (total_mem > 0) {
             unsigned long used = total_mem - available_mem;
