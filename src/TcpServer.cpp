@@ -5,22 +5,30 @@
 #include "SystemReader.hpp"
 #include "Logger.hpp"
 #include "sha256.hpp"
+#include "Config.hpp"
 #include <cerrno>
 #include <iostream>
-#include <cstring>      // memset
-#include <unistd.h>     // close, read, wright
-#include <fcntl.h>      // fcntl(Non-blocking 설정)
-#include <arpa/inet.h>  // sockaddr_in
-#include <netinet/in.h> // htons
-#include <sys/socket.h> // socket, build, listen
-#include <stdexcept>    // runtime_error
+#include <cstring>
+#include <unistd.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h> 
+#include <stdexcept>
+#include <sys/timerfd.h>
 
 namespace SST
 {
-    TcpServer::TcpServer(int port) : port_(port), server_fd_(-1), epoll_fd_(-1)
+    TcpServer::TcpServer(int port) : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1)
     {
+        // Config에서 키 로드 (기본값 설정이나 에러처리는 정책에 따라 결정)
+        secret_key_ = Config::getString("security", "hmac_key", "default_insecure_key");
+        if (secret_key_ == "default_insecure_key") {
+            SST::Logger::log("[Warning] Using Insecure Default Key! Please check config/sstd.ini");
+        } 
         initSocket();
         initEpoll();
+        initTimer(); 
     }
 
     TcpServer::~TcpServer()
@@ -34,7 +42,7 @@ namespace SST
         if(tmp_fd < 0){
             throw std::runtime_error("Socket creation failed");
         }
-        server_fd_ = SST::FD(tmp_fd); // RAII를 통해 소켓을 안전하게 관리
+        server_fd_ = SST::FD(tmp_fd);
 
         int opt = 1;
         // 서버를 재시작할 경우 커널이 이전 소켓을 정리하지 못하고 "Address already in use" 에러가 발생할 수 있음
@@ -47,7 +55,7 @@ namespace SST
         struct sockaddr_in addr;
         std::memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = INADDR_ANY;
+        addr.sin_addr.s_addr = INADDR_ANY; 
         SST::Logger::log(std::string("[Server] Binding to address ") + inet_ntoa(*(in_addr *)&addr.sin_addr.s_addr));
         addr.sin_port = htons(port_);
 
@@ -65,8 +73,6 @@ namespace SST
         SST::Logger::log("[Server] Listening on port " + std::to_string(port_));
     }
 
-    // non-blocking 모드 설정
-    // 논블로킹을 설정하지 않으면 데이터가 수신될때까지 블로킹되어 프로세스(서버)가 멈춤
     void TcpServer::setNonBlocking(int fd)
     {
         int flags = fcntl(fd, F_GETFL, 0);
@@ -91,6 +97,34 @@ namespace SST
         }
     }
 
+    // 타이머 초기화 (1초 주기)
+    void TcpServer::initTimer()
+    {
+        int tfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+        if (tfd == -1) {
+             throw std::runtime_error("Timerfd creation failed");
+        }
+        timer_fd_ = SST::FD(tfd);
+
+        struct itimerspec ts;
+        ts.it_interval.tv_sec = 1;
+        ts.it_interval.tv_nsec = 0;
+        ts.it_value.tv_sec = 1;
+        ts.it_value.tv_nsec = 0;
+
+        if (timerfd_settime(timer_fd_.get(), 0, &ts, nullptr) < 0) {
+            throw std::runtime_error("Timerfd settime failed");
+        }
+
+        struct epoll_event event;
+        event.events = EPOLLIN;
+        event.data.fd = timer_fd_.get();
+        if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, timer_fd_.get(), &event) < 0) {
+            throw std::runtime_error("Timerfd epoll add failed");
+        }
+        SST::Logger::log("[Server] Timerfd initialized (1s interval)");
+    }
+
     void TcpServer::run()
     {
         is_running_ = true;
@@ -101,7 +135,6 @@ namespace SST
                 break;
             }
 
-            // 500ms 타임아웃으로 시그널 플래그 확인 기회 제공
             int occurred_fds = epoll_wait(epoll_fd_.get(), events, MAX_EVENTS, 500);
             if (occurred_fds < 0)
             {
@@ -113,13 +146,18 @@ namespace SST
             for (int i = 0; i < occurred_fds; i++)
             {
                 int cur_fd = events[i].data.fd;
-                uint32_t ev = events[i].events; // 이벤트 비트마스크(종류)
-                if (cur_fd == server_fd_.get())
-                { 
+                uint32_t ev = events[i].events; 
+                
+                if (cur_fd == server_fd_.get()) { 
                     acceptConnection();
-                }
-                else
-                {
+                } else if (cur_fd == timer_fd_.get()) {
+                    // [NEW] 타이머 이벤트 처리 (Broadcast)
+                    uint64_t expirations;
+                    ssize_t n = read(cur_fd, &expirations, sizeof(expirations)); // 타이머 읽어서 클리어
+                    if (n > 0) {
+                        broadcastStats();
+                    }
+                } else {
                     if(ev & EPOLLIN){
                         handleClientData(cur_fd);
                     } else if (ev & EPOLLOUT){
@@ -131,12 +169,31 @@ namespace SST
             }
         }
     }
+    
+    // [NEW] 모든 클라이언트에게 데이터 브로드캐스트
+    void TcpServer::broadcastStats() {
+        if (clients_.empty()) return;
 
-    // 새 클라이언트 접속 처리
-    // accept() 호출하여 새로운 클라이언트 연결 수락
-    // 새로운 클라이언트 소켓을 논블로킹 모드로 설정하고 epoll 인스턴스에 추가
-    // 클라이언트 정보를 clients_ 맵에 저장
-    // 접속시 HMAC을 사용한 인증 절차를 수행
+        // 최신 통계 조회
+        SystemStats stats = SystemReader::getInstance().getStats();
+        
+        // 브로드캐스트용 바디 생성
+        std::vector<uint8_t> body(sizeof(SystemStats));
+        std::memcpy(body.data(), &stats, sizeof(SystemStats));
+
+        // 각 클라이언트마다 패킷 생성 (각자 시퀀스가 다르므로 개별 생성)
+        for (auto& [fd, client_info] : clients_) {
+            
+            // 인증된 클라이언트에게만 전송
+            if(!client_info.authenticated) continue;
+            ClientState& state = client_states_[fd];
+            std::vector<uint8_t> packet = PacketUtil::createPacket(0x20, state.last_seq++, body, secret_key_); 
+
+            if (!state.write_buffer.write(packet.data(), packet.size())) continue;
+            updateEpollEvents(fd, EPOLLIN | EPOLLOUT);
+        }
+    }
+
     void TcpServer::acceptConnection()
     {
         struct sockaddr_in client_addr;
@@ -152,7 +209,7 @@ namespace SST
         {
             setNonBlocking(client_fd.get());
             struct epoll_event event;
-            event.events = EPOLLIN; // 읽기 이벤트 및 연결 종료 이벤트 감지
+            event.events = EPOLLIN; 
             event.data.fd = client_fd.get();
 
             if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, client_fd.get(), &event) < 0)
@@ -184,9 +241,15 @@ namespace SST
         ssize_t bytes_read = read(client_fd, temp_buf, sizeof(temp_buf)); 
         if (bytes_read <= 0)
         {
-            if (bytes_read < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-                return; // 아직 데이터가 도착하지 않음
-            handleDisconnect(client_fd); // 클라이언트가 연결을 종료한 경우
+            if (bytes_read < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return; 
+            handleDisconnect(client_fd); 
+            return;
+        }
+
+        ClientState &state = client_states_[client_fd];
+        if (!state.read_buffer.write(temp_buf, bytes_read)) {
+            SST::Logger::log("[Error] Buffer overflow for client fd " + std::to_string(client_fd));
+            handleDisconnect(client_fd);
             return;
         }
 
@@ -194,25 +257,20 @@ namespace SST
         {
             if (state.read_buffer.size() < sizeof(SecureHeader)) break;
             
-            // 헤더 Peek
             SecureHeader header;
-            state.read_buffer.peek(reinterpret_cast<uint8_t*>(&header), sizeof(SecureHeader));
+            state.read_buffer.peek(reinterpret_cast<uint8_t*>(&header), sizeof(SecureHeader)); // 헤더만 읽어옴
 
-            // Magic Check Implementation
-            // Migration Doc says: "if(header->magic != MAGIC_NUMBER)"
-            // Assuming host order parsing (as per PacketUtil)
             if (header.magic != MAGIC_NUMBER) {
-                 SST::Logger::log("[Error] Invalid Magic from " + std::to_string(client_fd) + ". Got: " + std::to_string(header.magic));
+                 SST::Logger::log("[Error] Invalid Magic from " + std::to_string(client_fd));
                  handleDisconnect(client_fd);
                  return;
             }
 
             size_t total_packet_size = sizeof(SecureHeader) + header.body_len;
             if (state.read_buffer.size() < total_packet_size) {
-                break; // Wait for more data
+                break; 
             }
 
-            // 전체 패킷 읽기
             std::vector<uint8_t> packet(total_packet_size);
             state.read_buffer.read(packet.data(), total_packet_size);
 
@@ -239,59 +297,46 @@ namespace SST
     {
         SecureHeader* header = (SecureHeader*)packet.data();
         
-        // HMAC 검증 로직
+        // HMAC Verification
         uint8_t tag[HMAC_TAG_SIZE];
-
-        std::memcpy(tag, header->auth_tag, HMAC_TAG_SIZE);  // 원본 서명 백업
-        std::memset(header->auth_tag, 0, HMAC_TAG_SIZE);    // 서명 필드 0으로 초기화
-
-        // HMAC 계산
-        std::vector<uint8_t> calc_tag = SST::Sha256::hmac(SECRET_KEY, packet.data(), packet.size());
+        std::memcpy(tag, header->auth_tag, HMAC_TAG_SIZE);  
+        std::memset(header->auth_tag, 0, HMAC_TAG_SIZE);    
+        std::vector<uint8_t> calc_tag = SST::Sha256::hmac(secret_key_, packet.data(), packet.size());
         
         if(std::memcmp(tag, calc_tag.data(), HMAC_TAG_SIZE) != 0){
             SST::Logger::log("[Security] HMAC failed for " + clients_[client_fd].ip_address);
-            return false; // 연결 끊기
+            return false;
+        }
+        using namespace std::chrono;
+        uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        uint64_t pkt_ts = header->timestamp;    
+        uint64_t diff = (now_ms > pkt_ts) ? (now_ms - pkt_ts) : (pkt_ts - now_ms);
+        
+        if (diff > 5000) {
+            SST::Logger::log("[Security] Replay Attack Detected (Timestamp Expired) from " + clients_[client_fd].ip_address);
+            return false;
         }
 
-        // [New Feature] System Stats Response
         uint16_t cmd = header->cmd_mask;
-        std::vector<uint8_t> response_body;
-
-        if (cmd == 100) { // REQ_SystemStat (Example ID)
-            SystemStats stats = SystemReader::getInstance().getStats();
-            response_body.resize(sizeof(SystemStats));
-            std::memcpy(response_body.data(), &stats, sizeof(SystemStats));
-            SST::Logger::log("[Logic] Sending SystemStats to " + clients_[client_fd].ip_address);
-        } else {
-             std::string msg = "UNKNOWN CMD";
-             response_body.assign(msg.begin(), msg.end());
+        
+        if (cmd == 1) {
+             clients_[client_fd].authenticated = true;
+             SST::Logger::log("[Server] Client Authenticated: " + clients_[client_fd].ip_address);
         }
-
-        sendResponse(client_fd, cmd, response_body);
         return true;
     }
 
     void TcpServer::sendResponse(int client_fd, uint16_t cmd, const std::vector<uint8_t>& body) {
-        // request_id는 현재 단순 증가 (추후 요청의 ReqID를 Echo하도록 개선 가능)
         ClientState& state = client_states_[client_fd];
-        std::vector<uint8_t> packet = PacketUtil::createPacket(cmd, state.last_seq++, body);
+        std::vector<uint8_t> packet = PacketUtil::createPacket(cmd, state.last_seq++, body, secret_key_);
         
-        // CircularBuffer write
         if (!state.write_buffer.write(packet.data(), packet.size())) {
-            // Buffer Full -> 강제 연결 종료 or Drop?
-             SST::Logger::log("[Error] Write buffer full for fd " + std::to_string(client_fd));
              return; 
         }
-        
-        // EPOLLOUT 활성화 (즉시 쓰기 시도 안하고 비동기로 넘김, 구조 단순화 목적)
-        // 성능 최적화를 위해선 즉시 쓰기 시도 후 남은것만 버퍼링이 좋음 (기존 코드 참고)
-        // 여기서는 기존 로직 복원: 즉시 쓰기 시도
-        
-        // 하지만 CircularBuffer 구조상 Peek -> Write -> Consume 패턴이 필요함.
-        // 여기선 단순화를 위해 우선 이벤트를 켬. (Level Triggered이므로 바로 handleWrite 호출됨)
         updateEpollEvents(client_fd, EPOLLIN | EPOLLOUT);
     }
 
+    // 쓰기 이벤트 처리
     void TcpServer::handleWrite(int client_fd){
         if(client_states_.find(client_fd) == client_states_.end()) return;
         ClientState& state = client_states_[client_fd];
@@ -301,20 +346,11 @@ namespace SST
             return;
         }
 
-        // 벡터로 변환하여 전송 (CircularBuffer 파편화 때문에 writev를 쓰지 않는 한 한번 복사하거나, 두번 호출해야 함)
-        // 여기선 CircularBuffer::peek로 앞부분 청크를 가져와서 보냄.
-        
-        // CircularBuffer에 직접 접근할 수 없으므로(Private), toVector()등을 쓰거나 Interface확장 필요.
-        // 위에서 작성한 CircularBuffer.hpp에는 contiguous pointer access가 없음.
-        // performance를 위해 peek(buf, len) 사용.
-        
         uint8_t chunk[4096];
         size_t available = std::min((size_t)4096, state.write_buffer.size());
         
-        // 1. Peek (Copy cost exists, but safe)
         state.write_buffer.peek(chunk, available);
         
-        // 2. Write
         ssize_t sent = write(client_fd, chunk, available);
         if(sent > 0){
             state.write_buffer.consume(sent);
@@ -335,7 +371,7 @@ namespace SST
         ev.events = events;
         ev.data.fd = fd;
         if(epoll_ctl(epoll_fd_.get(), EPOLL_CTL_MOD, fd, &ev) == -1){
-            SST::Logger::log("[Error] Failed to update epoll events");
+           // Log error
         }
     }
 }
