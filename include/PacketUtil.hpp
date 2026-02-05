@@ -4,6 +4,7 @@
 #include "Protocol.hpp"
 #include <vector>
 #include <cstdint>
+#include <string>
 
 namespace SST {
     class PacketUtil {

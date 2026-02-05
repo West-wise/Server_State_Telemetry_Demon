@@ -7,6 +7,7 @@
 #include <atomic>
 #include <shared_mutex>
 #include <chrono>
+#include <mutex>
 
 namespace SST {
 

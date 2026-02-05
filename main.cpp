@@ -7,7 +7,8 @@
 #include <vector>
 #include <csignal>
 #include <iostream>
-
+#include <atomic>
+#include <string>
 // Signal handling
 volatile sig_atomic_t g_stop_signal = 0;
 

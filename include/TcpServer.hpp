@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 #include <atomic>
+#include <csignal>
 
 namespace SST {
     struct ClientInfo {
