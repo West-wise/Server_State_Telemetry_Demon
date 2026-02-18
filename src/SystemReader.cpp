@@ -1,5 +1,6 @@
 #include "SystemReader.hpp"
 #include "Config.hpp"
+#include "Logger.hpp"
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -7,6 +8,8 @@
 #include <unistd.h>
 #include <sys/sysinfo.h>
 #include <sys/utsname.h>
+#include <climits>
+#include <cstring>
 
 // 제공 대상 정보 수집
 // host info
@@ -167,7 +170,7 @@ namespace SST {
         }
     }
 
-    static std::string getHostName(){
+    std::string SystemReader::getHostName(){
         char hostname_buf[HOST_NAME_MAX+1];
         std::memset(hostname_buf, 0, sizeof(hostname_buf));
         if(gethostname(hostname_buf, sizeof(hostname_buf)) == 0){
@@ -321,23 +324,23 @@ namespace SST {
         prev_net_tp_ = now;
     }
 
-    void SystemReader::numberOfProcess(){
+    // void SystemReader::numberOfProcess(){
 
-    }
+    // }
 
-    void SystemReader::fileDescriptorsInfo(){
+    // void SystemReader::fileDescriptorsInfo(){
 
-    }
+    // }
 
-    void SystemReader::connectedUsersInfo(){
+    // void SystemReader::connectedUsersInfo(){
 
-    }
+    // }
 
-    void SystemReader::partitionsInfo(){
+    // void SystemReader::partitionsInfo(){
 
-    }
+    // }
 
-    void SystemReader::nfsPartitionsInfo(){
+    // void SystemReader::nfsPartitionsInfo(){
 
-    }
+    // }
 }

@@ -31,21 +31,6 @@ namespace SST {
         // 복사 방지
         SystemReader(const SystemReader&) = delete;
         SystemReader& operator=(const SystemReader&) = delete;
-        HostInfo collectHostInfo();
-
-        void updateLoop();
-        void parseProcStat(SystemStats& stats);
-        void parseMemInfo(SystemStats& stats);
-        void parseDiskUsage(SystemStats& stats); // Optional
-        void parseUptime(SystemStats& stats);
-        void getNetDevInfo(SystemStats& stats);
-        void numberOfProcess(SystemStats& stats);
-        void fileDescriptorsInfo(SystemStats& stats);
-        void connectedUsersInfo(SystemStats& stats);
-        void partitionsInfo(SystemStats& stats);
-        void nfsPartitionsInfo(SystemStats& stats);
-bool parseNetDevInfo(NetCounter& out);
-        std::string getHostName();
 
         std::atomic<bool> running_{false};
         std::thread collector_thread_;
@@ -74,9 +59,21 @@ bool parseNetDevInfo(NetCounter& out);
         bool net_prev_valid_{false};
         std::chrono::steady_clock::time_point prev_net_tp_{};
 
-        
+        HostInfo collectHostInfo();
+        void updateLoop();
+        void parseProcStat(SystemStats& stats);
+        void parseMemInfo(SystemStats& stats);
+        void parseDiskUsage(SystemStats& stats); // Optional
+        void parseUptime(SystemStats& stats);
+        void getNetDevInfo(SystemStats& stats);
+        void numberOfProcess(SystemStats& stats);
+        void fileDescriptorsInfo(SystemStats& stats);
+        void connectedUsersInfo(SystemStats& stats);
+        void partitionsInfo(SystemStats& stats);
+        void nfsPartitionsInfo(SystemStats& stats);
+        bool parseNetDevInfo(NetCounter& out);
+        static std::string getHostName();
 
-        struct 
     };
 }
 
