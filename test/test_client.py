@@ -84,7 +84,7 @@ def run_client():
                     except Exception as e:
                         print(f"\n[!] Failed to parse HostInfo: {e}")
 
-                elif cmd == 0x11: # RES_SystemStat (17)
+                elif cmd == 0x02: # RES_SystemStat (17)
                     # SystemStats 구조체: 
                     # uint16_t valid_mask;  // 2
                     # uint16_t reserved;    // 2
