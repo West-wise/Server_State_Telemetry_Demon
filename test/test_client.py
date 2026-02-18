@@ -3,80 +3,149 @@ import struct
 import time
 import hmac
 import hashlib
+import sys
 
-# [설정] 서버와 동일한 키여야 함
+# [설정]
 HOST = '127.0.0.1'
 PORT = 41924
-MAGIC = 0x53535444  # 'SSTD'
-SECRET_KEY = b"sstd_tmp_secret_key_2026" # [주의] 서버 코드의 SECRET_KEY와 정확히 일치시킬 것!
+MAGIC = 0x53535444
+# 256-bit Secure Key (Matched with server config)
+# config/sstd.ini의 hmac_key와 일치해야 함 (Hex Decoding 필요)
+HEX_KEY = ""
+SECRET_KEY = bytes.fromhex(HEX_KEY) # Hex 문자열을 바이트로 변환해야 함
+FMT = '<IBBHHIQI16s' # Header Format
 
-def send_packet():
+def run_client():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         print(f"[*] Connecting to {HOST}:{PORT}...")
         try:
             s.connect((HOST, PORT))
-        except ConnectionRefusedError:
-            print("[!] Connection failed. Is the server running?")
+        except Exception as e:
+            print(f"[!] Connection failed: {e}")
             return
-        print("[+] Connected!")
+        
+        print("[+] Connected! Sending Handshake...")
 
-        # 1. 데이터 준비
-        version = 1
-        msg_type = 1 # REQ_Connect
-        client_id = 101     # [NEW] C++ struct의 client_id 대응
-        cmd_mask = 100      # C++ struct의 cmd_mask 대응
-        seq = 1             # request_id
-        
-        # [NEW] C++ struct의 timestamp 대응 (Unix Timestamp MS)
-        timestamp = int(time.time() * 1000) 
-        
-        payload = b"Hello Server!"
+        # 1. Handshake Packet (CMD=1)
+        req_id = 1
+        payload = b"AUTH_ME"
         body_len = len(payload)
         
-        # 2. 구조체 포맷 문자열 정의 (Little Endian, 1 byte alignment)
-        # I:uint32, B:uint8, B:uint8, H:uint16, H:uint16, I:uint32, Q:uint64, I:uint32, 16s:char[16]
-        # 총 크기: 4+1+1+2+2+4+8+4+16 = 42 bytes
-        fmt = '<IBBHHIQI16s'
-
-        # 3. HMAC 계산을 위해 Auth Tag를 0으로 채운 임시 헤더 생성
-        zero_auth_tag = b'\x00' * 16
-        
-        # pack 순서: magic, version, type, client_id, cmd_mask, req_id, timestamp, body_len, auth_tag
-        temp_header = struct.pack(fmt, 
-                             MAGIC, version, msg_type, client_id, cmd_mask, seq, timestamp, body_len, zero_auth_tag)
-        
-        # 4. 전체 데이터(헤더+바디)에 대해 HMAC-SHA256 계산
+        # Header Creation
+        timestamp = int(time.time() * 1000)
+        temp_header = struct.pack(FMT, MAGIC, 1, 1, 0, 1, req_id, timestamp, body_len, b'\x00' * 16)
         full_data = temp_header + payload
-        # digest()의 앞 16바이트만 사용 (Truncated HMAC)
-        calc_hmac = hmac.new(SECRET_KEY, full_data, hashlib.sha256).digest()[:16]
+        auth_tag = hmac.new(SECRET_KEY, full_data, hashlib.sha256).digest()[:16]
         
-        # 5. 진짜 헤더 생성 (계산된 HMAC 포함)
-        real_header = struct.pack(fmt, 
-                             MAGIC, version, msg_type, client_id, cmd_mask, seq, timestamp, body_len, calc_hmac)
+        real_header = struct.pack(FMT, MAGIC, 1, 1, 0, 1, req_id, timestamp, body_len, auth_tag)
         
-        # 6. 전송
-        final_packet = real_header + payload
-        print(f"[*] Sending Header({len(real_header)}) + Body({len(payload)}) = {len(final_packet)} bytes")
-        s.sendall(final_packet)
+        # [Debug] Header Dump
+        print("[DEBUG] Sending Header:", real_header.hex(' '))
+        
+        s.sendall(real_header + payload)
+        
+        print("[*] Handshake sent. Waiting for stream...")
 
-        # 응답 대기
-        try:
-            # 헤더 크기(42) + 예상 바디 등 넉넉하게 수신
-            response = s.recv(1024)
-            if not response:
-                print("[!] Server closed connection.")
-            else:
-                print(f"[<] Received: {len(response)}bytes")
-                # 응답 헤더 파싱 (선택 사항)
-                if len(response) >= 42:
-                    r_magic, r_ver, r_type, r_cid, r_cmd, r_seq, r_ts, r_len, r_tag = struct.unpack(fmt, response[:42])
-                    print(f"    -> Magic: {hex(r_magic)}, Cmd: {r_cmd}, BodyLen: {r_len}")
-                    print(f"    -> Body: {response[42:]}")
-        except Exception as e:
-            print(f"[!] Error receiving: {e}")
-            
-        time.sleep(1)
-        print("[*] Done.")
+        # 2. Receive Loop (Push Model)
+        while True:
+            try:
+                # 헤더 읽기 (42 bytes)
+                header_data = s.recv(42)
+                if not header_data or len(header_data) < 42:
+                    print("[!] Server disconnected or invalid header.")
+                    break
+                
+                # 헤더 파싱
+                magic, ver, type_, cid, cmd, seq, ts, body_len, tag = struct.unpack(FMT, header_data)
+                
+                if magic != MAGIC:
+                    print(f"[!] Invalid Magic: {hex(magic)}")
+                    break
+                    
+                # 바디 읽기
+                body_data = b''
+                while len(body_data) < body_len:
+                    chunk = s.recv(body_len - len(body_data))
+                    if not chunk: break
+                    body_data += chunk
+                
+                # HMAC 검증 (Optional here for test)
+                
+                # HMAC 검증 (Optional here for test)
+                
+                if cmd == 0x12: # RES_HostInfo (18)
+                    # HostInfo 구조체: hostname(string), os_name(string), release_info(string)
+                    # C++ 구조체는 std::string을 포함하고 있으므로 직렬화 방식에 따라 다름.
+                    # 하지만 현재 Protocol.hpp 정의상 HostInfo는 가변 길이 문자열을 포함할 것으로 추정됨.
+                    # 여기서는 단순히 문자열로 디코딩하여 출력.
+                    try:
+                        info_str = body_data.decode('utf-8', errors='replace')
+                        print(f"\n[Host Info] {info_str}")
+                    except Exception as e:
+                        print(f"\n[!] Failed to parse HostInfo: {e}")
+
+                elif cmd == 0x11: # RES_SystemStat (17)
+                    # SystemStats 구조체: 
+                    # uint16_t valid_mask;  // 2
+                    # uint16_t reserved;    // 2
+                    # uint8_t cpu_usage;    // 1
+                    # uint8_t mem_usage;    // 1
+                    # uint8_t disk_usage;   // 1
+                    # uint8_t temp_cpu;     // 1
+                    # netInfo net_rx_bytes; // 16 (4*4)
+                    # netInfo net_tx_bytes; // 16 (4*4)
+                    # uint16_t proc_count;  // 2
+                    # uint16_t user_count;  // 2
+                    # uint32_t uptime_secs; // 4
+                    # Total: 48 bytes
+                    
+                    if len(body_data) >= 48:
+                        st_fmt = '<HHBBBBIIIIIIIIHHI'
+                        valid, res, cpu, mem, disk, temp, \
+                        rx_bytes, rx_pkts, rx_errs, rx_drop, \
+                        tx_bytes, tx_pkts, tx_errs, tx_drop, \
+                        proc, user, uptime = struct.unpack(st_fmt, body_data[:48])
+                        
+                        # 화면 지우고 출력 (ANSI Escape Code)
+                        # \033[2J: 화면 클리어, \033[H: 커서 홈 이동
+                        sys.stdout.write("\033[2J\033[H")
+                        print("="*40)
+                        print(f" [ System Telemetry Client ]")
+                        print("="*40)
+                        print(f" CPU Usage  : {cpu:>3}%  | Temp: {temp}C")
+                        print(f" MEM Usage  : {mem:>3}%")
+                        print(f" Disk Usage : {disk:>3}%")
+                        print(f" Uptime     : {uptime} sec")
+                        print("-" * 40)
+                        print(f" [ Network RX ]")
+                        print(f" Bytes/s    : {rx_bytes}")
+                        print(f" Packets/s  : {rx_pkts}")
+                        print(f" Errors/s   : {rx_errs}")
+                        print(f" Drops/s    : {rx_drop}")
+                        print("-" * 40)
+                        print(f" [ Network TX ]")
+                        print(f" Bytes/s    : {tx_bytes}")
+                        print(f" Packets/s  : {tx_pkts}")
+                        print(f" Errors/s   : {tx_errs}")
+                        print(f" Drops/s    : {tx_drop}")
+                        print("-" * 40)
+                        print(f" Processes  : {proc}")
+                        print(f" Users      : {user}")
+                        print("="*40)
+                        sys.stdout.flush()
+                    else:
+                        print(f"[Stream] Received {len(body_data)} bytes (Body) - Expected 48 bytes")
+                else:
+                    print(f"[Stream] Unknown CMD: {cmd}")
+
+            except KeyboardInterrupt:
+                print("\n[*] Initializing disconnect...")
+                break
+            except Exception as e:
+                print(f"\n[!] Error: {e}")
+                break
+    
+    print("[*] Client stopped.")
 
 if __name__ == "__main__":
-    send_packet()
+    run_client()
