@@ -146,7 +146,7 @@ namespace SST
         is_running_ = true;
         // 최초 실행시 호스트 정보 수집
         // 이 정보는 거의 바뀌지 않음으로 서버 실행시 단 한번 수집후 지속적으로 사용
-        HostInfo host_info = SST::SystemReader::getHostInfo();
+        HostInfo host_info = SST::SystemReader::getInstance().getHostInfo();
         while (is_running_)
         {
             if (stop_flag_ && *stop_flag_) {
@@ -198,7 +198,7 @@ namespace SST
         // 브로드캐스트용 바디 생성
         std::vector<uint8_t> body(sizeof(SystemStats));
         std::memcpy(body.data(), &stats, sizeof(SystemStats));
-        std::vector<uint8_t> pkt = PacketUtil::createPacket(0x20, 0, body, secret_key_);
+        std::vector<uint8_t> pkt = PacketUtil::createPacket(0x02, 0, body, secret_key_);
 
         // 각 클라이언트마다 패킷 생성 (각자 시퀀스가 다르므로 개별 생성)
         for (auto& [fd, client_info] : clients_) {
@@ -209,7 +209,7 @@ namespace SST
 
             ClientState& state = state_it->second;
             
-            std::vector<uint8_t> packet = PacketUtil::createPacket(0x20, state.last_seq++, body, secret_key_); 
+            std::vector<uint8_t> packet = PacketUtil::createPacket(0x02, state.last_seq++, body, secret_key_); 
 
             if (!state.write_buffer.write(packet.data(), packet.size())) continue;
             updateEpollEvents(fd, EPOLLIN | EPOLLOUT);
@@ -347,7 +347,7 @@ namespace SST
 
         uint16_t cmd = header->cmd_mask;
         
-        if (cmd == 1) {
+        if (cmd == 0x01) {
              clients_[client_fd].authenticated = true;
              SST::Logger::log("[Server] Client Authenticated: " + clients_[client_fd].ip_address);
 
