@@ -144,6 +144,9 @@ namespace SST
     void TcpServer::run()
     {
         is_running_ = true;
+        // 최초 실행시 호스트 정보 수집
+        // 이 정보는 거의 바뀌지 않음으로 서버 실행시 단 한번 수집후 지속적으로 사용
+        HostInfo host_info = SST::SystemReader::getHostInfo();
         while (is_running_)
         {
             if (stop_flag_ && *stop_flag_) {
@@ -164,22 +167,21 @@ namespace SST
                 int cur_fd = events[i].data.fd;
                 uint32_t ev = events[i].events; 
                 
+                // 새로운 연결 요청 처리
                 if (cur_fd == server_fd_.get()) { 
                     acceptConnection();
                 } else if (cur_fd == timer_fd_.get()) {
-                    // [NEW] 타이머 이벤트 처리 (Broadcast)
+                    // 타이머 이벤트 처리 (Broadcast)
                     uint64_t expirations;
                     ssize_t n = read(cur_fd, &expirations, sizeof(expirations)); // 타이머 읽어서 클리어
-                    if (n > 0) {
-                        broadcastStats();
-                    }
+                    if (n > 0) broadcastStats();
                 } else {
                     if(ev & EPOLLIN){
-                        handleClientData(cur_fd);
+                        handleClientData(cur_fd); // 클라이언트 데이터 처리
                     } else if (ev & EPOLLOUT){
-                        handleWrite(cur_fd);
+                        handleWrite(cur_fd);      // 클라이언트 쓰기 처리
                     } else if (ev & (EPOLLERR | EPOLLHUP)){
-                        handleDisconnect(cur_fd);
+                        handleDisconnect(cur_fd); // 클라이언트 연결 해제 관리
                     }
                 }
             }
@@ -348,6 +350,23 @@ namespace SST
         if (cmd == 1) {
              clients_[client_fd].authenticated = true;
              SST::Logger::log("[Server] Client Authenticated: " + clients_[client_fd].ip_address);
+
+             // Send Host Info
+             HostInfo info = SystemReader::getInstance().getHostInfo();
+             std::vector<uint8_t> body;
+             
+             auto pushStr = [&](const std::string& s) {
+                 uint16_t len = static_cast<uint16_t>(s.size());
+                 body.push_back(len & 0xFF);
+                 body.push_back((len >> 8) & 0xFF);
+                 body.insert(body.end(), s.begin(), s.end());
+             };
+
+             pushStr(info.hostname);
+             pushStr(info.os_name);
+             pushStr(info.release_info);
+             
+             sendResponse(client_fd, static_cast<uint16_t>(MessageType::RES_HostInfo), body);
         }
         return true;
     }

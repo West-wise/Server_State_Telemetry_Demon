@@ -1,10 +1,26 @@
 #include "SystemReader.hpp"
+#include "Config.hpp"
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <iostream>
 #include <unistd.h>
 #include <sys/sysinfo.h>
+#include <sys/utsname.h>
+
+// 제공 대상 정보 수집
+// host info
+// CPU info
+// RAM info
+// network(upload/download) info
+// network connected clients
+// number of process
+// number of file descriptors
+// display uptime
+// connected users info
+// partitions info
+// NFS partitions info
+
 
 namespace SST {
 
@@ -31,27 +47,52 @@ namespace SST {
         }
     }
 
+    // 락을 걸고 현재 수집된 정보를 반환
     SystemStats SystemReader::getStats() {
         std::shared_lock lock(mutex_);
         return current_stats_;
     }
 
+    // 최초 실행시 호스트 정보 수집(해당 정보는 변하지 않으므로 캐싱)
+    HostInfo SystemReader::getHostInfo() {
+        std::call_once(init_flag_, [this]() {
+            HostInfo local = this -> collectHostInfo();
+            {
+                std::unique_lock<std::shared_mutex> wlock(mutex_);
+                host_info_ = std::move(local);
+            }
+        });
+        std::shared_lock<std::shared_mutex> rlock(mutex_);
+        return host_info_;
+    }
+
     void SystemReader::updateLoop() {
         while (running_) {
             {
-                std::unique_lock lock(mutex_);
+                SystemStats next_stats;
                 // 데이터 수집
-                parseProcStat();
-                parseMemInfo();
-                parseUptime();
-                // Network, Disk 등은 추후 확장
-                current_stats_.valid_mask = 0xFFFF; // 유효함 표시
+                // host info -> HostInfo()같은 경우는 지속적으로 보내줄 필요가 없는 정보이니 첫 연결시에 보내주거나 QR에 담아서 인식할 수 있도록 하는것이 어떤지?
+                parseProcStat(next_stats); // CPU info
+                parseMemInfo(next_stats); // RAM info
+                getNetDevInfo(next_stats);
+                // network connected clients
+                // number of process
+                // number of file descriptors
+                parseUptime(next_stats);  // uptime info
+                // connected users info
+                // partitions info
+                // NFS partitions info
+                next_stats.valid_mask = 0xFFFF;
+                { // 커밋
+                    std::unique_lock lock(mutex_);
+                    current_stats_ = next_stats;
+                }
             }
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
 
-    void SystemReader::parseProcStat() {
+    void SystemReader::parseProcStat(SystemStats& out) {
         std::ifstream file("/proc/stat");
         if (!file.is_open()) return;
 
@@ -60,18 +101,26 @@ namespace SST {
             if (line.substr(0, 3) == "cpu") {
                 std::istringstream iss(line);
                 std::string header;
-                unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
+                uint64_t user, nice, system, idle, iowait, irq, softirq, steal;
                 iss >> header >> user >> nice >> system >> idle >> iowait >> irq >> softirq >> steal;
 
-                unsigned long long total = user + nice + system + idle + iowait + irq + softirq + steal;
-                unsigned long long total_idle = idle + iowait;
+                uint64_t total = user + nice + system + idle + iowait + irq + softirq + steal;
+                uint64_t total_idle = idle + iowait;
 
-                unsigned long long diff_total = total - prev_cpu_.total_time;
-                unsigned long long diff_idle = total_idle - prev_cpu_.idle_time;
+                uint64_t diff_total = total - prev_cpu_.total_time;
+                uint64_t diff_idle = total_idle - prev_cpu_.idle_time;
+
+                if(!cpu_prev_valid_){
+                    cpu_prev_valid_ = true;
+                    prev_cpu_.total_time = total;
+                    prev_cpu_.idle_time = total_idle;
+                    out.cpu_usage = 0;
+                    return;
+                }
 
                 if (diff_total > 0) {
                     double usage = 100.0 * (diff_total - diff_idle) / diff_total;
-                    current_stats_.cpu_usage = static_cast<uint8_t>(usage);
+                    out.cpu_usage = static_cast<uint8_t>(usage);
                 }
 
                 prev_cpu_.total_time = total;
@@ -80,19 +129,19 @@ namespace SST {
         }
     }
 
-    void SystemReader::parseMemInfo() {
+    void SystemReader::parseMemInfo(SystemStats& out) {
         std::ifstream file("/proc/meminfo");
         if (!file.is_open()) return;
 
         std::string line;
-        unsigned long total_mem = 0;
-        unsigned long free_mem = 0;
-        unsigned long available_mem = 0;
+        uint64_t total_mem = 0;
+        uint64_t free_mem = 0;
+        uint64_t available_mem = 0;
 
         while (std::getline(file, line)) {
             std::istringstream iss(line);
             std::string key;
-            unsigned long value;
+            uint64_t value;
             std::string unit;
             iss >> key >> value >> unit;
 
@@ -105,16 +154,190 @@ namespace SST {
         }
 
         if (total_mem > 0) {
-            unsigned long used = total_mem - available_mem;
+            uint64_t used = total_mem - available_mem;
             double usage = 100.0 * used / total_mem;
-            current_stats_.mem_usage = static_cast<uint8_t>(usage);
+            out.mem_usage = static_cast<uint8_t>(usage);
         }
     }
 
-    void SystemReader::parseUptime() {
+    void SystemReader::parseUptime(SystemStats& out) {
         struct sysinfo info;
         if (sysinfo(&info) == 0) {
-            current_stats_.uptime_secs = static_cast<uint32_t>(info.uptime);
+            out.uptime_secs = static_cast<uint32_t>(info.uptime);
         }
+    }
+
+    static std::string getHostName(){
+        char hostname_buf[HOST_NAME_MAX+1];
+        std::memset(hostname_buf, 0, sizeof(hostname_buf));
+        if(gethostname(hostname_buf, sizeof(hostname_buf)) == 0){
+            return std::string(hostname_buf);
+        }
+        return "Unknown";
+    }
+
+    HostInfo SystemReader::collectHostInfo(){
+        HostInfo out{};
+
+        // 기본값 설정
+        std::string hostname = getHostName();
+        std::string os_name = "Unknown OS";
+        std::string release_info = "Unknown Release";
+
+        // Uname 정보 수집 시도
+        struct utsname sys_info;
+        if(uname(&sys_info) != -1){
+            out.os_name = std::string(sys_info.sysname) + " " + std::string(sys_info.release);
+        } else {
+            SST::Logger::log("[Warning] Failed to get system info using uname");
+        }
+
+        // os-release 파일 읽기 시도
+        const char* paths[] = {"/etc/os-release", "/usr/lib/os-release"};
+        for(const char* path : paths){
+            std::ifstream file(path);
+            if(!file.is_open()) continue;
+            
+            std::string line;
+            while(std::getline(file, line)){
+                if(line.empty() || line[0] == '#') continue;
+                std::istringstream ss(line);
+                std::string key, value;
+                if(std::getline(ss, key, '=') && std::getline(ss, value)){
+                    if(key == "PRETTY_NAME"){
+                        out.release_info = std::string(SST::Config::trim(value));
+                        break;
+                    }
+                }
+            }
+            if (out.release_info != "Unknown Release") break;    
+        }
+        return out;
+    }
+
+    bool SystemReader::parseNetDevInfo(NetCounter& out){
+        std::ifstream file("/proc/net/dev");
+        if(!file.is_open()) return false;
+        std::string line;
+        
+        // 헤더 2줄 스킵
+        if(!std::getline(file, line)) return false;
+        if(!std::getline(file, line)) return false;
+
+        NetCounter sum{};
+
+        // 그중에서 [0~3]은 수신(RX), [8~11]은 송신(TX)
+        while(std::getline(file, line)){
+            if(line.empty()) continue;
+
+            const auto pos = line.find(':');
+            if(pos == std::string::npos) continue;
+
+            std::string iface_name = std::string(SST::Config::trim(line.substr(0,pos)));
+            if(iface_name == "lo") continue;
+
+            std::istringstream iss(line.substr(pos + 1));
+            // /proc/net/dev는 숫자 16개 (rx 8 + tx 8)
+            uint64_t rx_bytes=0, rx_packets=0, rx_errs=0, rx_drop=0;
+            uint64_t rx_fifo=0, rx_frame=0, rx_comp=0, rx_mcast=0;
+            uint64_t tx_bytes=0, tx_packets=0, tx_errs=0, tx_drop=0;
+            uint64_t tx_fifo=0, tx_colls=0, tx_carrier=0, tx_comp=0;
+
+            if (!(iss >> rx_bytes >> rx_packets >> rx_errs >> rx_drop
+                    >> rx_fifo >> rx_frame >> rx_comp >> rx_mcast
+                    >> tx_bytes >> tx_packets >> tx_errs >> tx_drop
+                    >> tx_fifo >> tx_colls >> tx_carrier >> tx_comp)) {
+                continue;
+            }
+
+            sum.rx_bytes   += rx_bytes;
+            sum.rx_packets += rx_packets;
+            sum.rx_errs    += rx_errs;
+            sum.rx_drop    += rx_drop;
+
+            sum.tx_bytes   += tx_bytes;
+            sum.tx_packets += tx_packets;
+            sum.tx_errs    += tx_errs;
+            sum.tx_drop    += tx_drop;
+            
+        }
+        out = sum;
+        return true;
+    }
+
+    inline uint64_t delta(uint64_t cur_val, uint64_t prev_val){
+        return (cur_val >= prev_val) ? (cur_val - prev_val) : 0ULL;
+    }
+
+    void SystemReader::getNetDevInfo(SystemStats& out){
+        NetCounter cur{};
+        if(!parseNetDevInfo(cur)) return;
+        const auto now = std::chrono::steady_clock::now();
+        
+        if(!net_prev_valid_){
+            prev_net_ = cur;
+            prev_net_tp_ = now;
+            net_prev_valid_ = true;
+
+            out.net_rx_bytes = {0,0,0,0};
+            out.net_tx_bytes = {0,0,0,0};
+            return;
+        }
+
+        const std::chrono::duration<double> dt = now - prev_net_tp_;
+        const double sec = dt.count();
+
+        if( sec <= 0.0 ){
+            prev_net_ = cur;
+            prev_net_tp_ = now;
+            return;
+        }
+
+        const uint64_t d_rx_bytes = delta(cur.rx_bytes, prev_net_.rx_bytes);
+        const uint64_t d_rx_pkts = delta(cur.rx_packets, prev_net_.rx_packets);
+        const uint64_t d_rx_errs = delta(cur.rx_errs, prev_net_.rx_errs);
+        const uint64_t d_rx_drop = delta(cur.rx_drop, prev_net_.rx_drop);
+
+        const uint64_t d_tx_bytes = delta(cur.tx_bytes, prev_net_.tx_bytes);
+        const uint64_t d_tx_pkts = delta(cur.tx_packets, prev_net_.tx_packets);
+        const uint64_t d_tx_errs = delta(cur.tx_errs, prev_net_.tx_errs);
+        const uint64_t d_tx_drop = delta(cur.tx_drop, prev_net_.tx_drop);
+
+        out.net_rx_bytes = {
+            static_cast<uint32_t>(d_rx_bytes / sec),
+            static_cast<uint32_t>(d_rx_pkts / sec),
+            static_cast<uint32_t>(d_rx_errs / sec),
+            static_cast<uint32_t>(d_rx_drop / sec)
+        };
+
+        out.net_tx_bytes = {
+            static_cast<uint32_t>(d_tx_bytes / sec),
+            static_cast<uint32_t>(d_tx_pkts / sec),
+            static_cast<uint32_t>(d_tx_errs / sec),
+            static_cast<uint32_t>(d_tx_drop / sec)
+        };
+
+        prev_net_ = cur;
+        prev_net_tp_ = now;
+    }
+
+    void SystemReader::numberOfProcess(){
+
+    }
+
+    void SystemReader::fileDescriptorsInfo(){
+
+    }
+
+    void SystemReader::connectedUsersInfo(){
+
+    }
+
+    void SystemReader::partitionsInfo(){
+
+    }
+
+    void SystemReader::nfsPartitionsInfo(){
+
     }
 }

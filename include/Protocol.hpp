@@ -12,6 +12,7 @@ namespace SST {
         REQ_Connect    = 0x01,
         REQ_SystemStat = 0x10,
         RES_SystemStat = 0x11,
+        RES_HostInfo   = 0x12,
         ERR_General    = 0xFF
     };
 
@@ -38,15 +39,33 @@ namespace SST {
         uint8_t disk_usage;
         uint8_t temp_cpu;
 
-        uint32_t net_rx_bytes;
-        uint32_t net_tx_bytes;
+        netInfo net_rx_bytes;
+        netInfo net_tx_bytes;
+        
         uint16_t proc_count;
         uint16_t user_count;
         uint32_t uptime_secs;
     };
+
+    struct netInfo {
+        uint32_t byte_ps; // ps : per sec
+        uint32_t packet_ps;
+        uint32_t err_ps;
+        uint32_t drop_ps;
+    }
     #pragma pack(pop)
+
+    
+
     static_assert(sizeof(SecureHeader) == 42, "SecureHeader size mismatch");
     static_assert(sizeof(SystemStats) == 24, "SystemStats size mismatch");
+
+    // 최초 연결시 서버 호스트 정보를 전달하기 위한 구조체
+    struct HostInfo {
+        std::string hostname;
+        std::string os_name;
+        std::string release_info;
+    };
 }
 
 #endif // PROTOCOL_HPP
