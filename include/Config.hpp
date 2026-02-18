@@ -76,10 +76,6 @@ namespace SST {
             }
         }
 
-        
-
-    private:
-        static inline ConfigMap config_data_;    
         static std::string_view trim(std::string_view s){
             constexpr auto whitespace = " \t\n\r\f\v\"";
             const auto first = s.find_first_not_of(whitespace);
@@ -89,6 +85,8 @@ namespace SST {
             const auto last = s.find_last_not_of(whitespace);
             return s.substr(first, last - first + 1);
         }
+    private:
+        static inline ConfigMap config_data_;
     };
 }
 
