@@ -208,7 +208,7 @@ namespace SST {
                 std::string key, value;
                 if(std::getline(ss, key, '=') && std::getline(ss, value)){
                     if(key == "PRETTY_NAME"){
-                        out.release_info = std::string(SST::Config::trim(value));
+                        out.release_info = std::string(SST::Utils::String::trim(value));
                         break;
                     }
                 }
@@ -236,7 +236,7 @@ namespace SST {
             const auto pos = line.find(':');
             if(pos == std::string::npos) continue;
 
-            std::string iface_name = std::string(SST::Config::trim(line.substr(0,pos)));
+            std::string iface_name = std::string(SST::Utils::String::trim(line.substr(0,pos)));
             if(iface_name == "lo") continue;
 
             std::istringstream iss(line.substr(pos + 1));

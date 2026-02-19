@@ -27,7 +27,7 @@ namespace SST {
             std::string current_section;
             while(getline(file, line)){
                 // 공백 제거
-                auto vline = trim(line);
+                auto vline = SST::Utils::String::trim(line);
                 
                 // 빈줄 혹은 주석 무시
                 if(vline.empty() || vline[0] == '#' || vline[0] == ';') continue;
@@ -41,8 +41,8 @@ namespace SST {
                 // 키-값 파싱
                 size_t delim_pos = vline.find('=');
                 if(delim_pos != std::string::npos){
-                    auto key = trim(vline.substr(0, delim_pos));
-                    auto value = trim(vline.substr(delim_pos + 1));
+                    auto key = SST::Utils::String::trim(vline.substr(0, delim_pos));
+                    auto value = SST::Utils::String::trim(vline.substr(delim_pos + 1));
                     
                     if(!current_section.empty()){
                         std::cout << "Config Load: [" << current_section << "] " << key << " = " << value << std::endl;
@@ -76,15 +76,6 @@ namespace SST {
             }
         }
 
-        static std::string_view trim(std::string_view s){
-            constexpr auto whitespace = " \t\n\r\f\v\"";
-            const auto first = s.find_first_not_of(whitespace);
-            if (first == std::string_view::npos) {
-                return {};
-            }
-            const auto last = s.find_last_not_of(whitespace);
-            return s.substr(first, last - first + 1);
-        }
     private:
         static inline ConfigMap config_data_;
     };
