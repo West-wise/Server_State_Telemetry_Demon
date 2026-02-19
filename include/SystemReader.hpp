@@ -23,7 +23,6 @@ namespace SST {
         // 최신 통계 조회 (Thread-Safe)
         SystemStats getStats();
         HostInfo getHostInfo();
-
     private:
         SystemReader() = default;
         ~SystemReader();
@@ -68,12 +67,12 @@ namespace SST {
         void getNetDevInfo(SystemStats& stats);
         void numberOfProcess(SystemStats& stats);
         void fileDescriptorsInfo(SystemStats& stats);
+        void networkConnectedClients(SystemStats& stats);
         void connectedUsersInfo(SystemStats& stats);
         void partitionsInfo(SystemStats& stats);
         void nfsPartitionsInfo(SystemStats& stats);
         bool parseNetDevInfo(NetCounter& out);
         static std::string getHostName();
-
     };
 }
 

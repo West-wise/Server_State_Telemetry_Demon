@@ -10,6 +10,10 @@
 #include <sys/utsname.h>
 #include <climits>
 #include <cstring>
+#include <string>
+#include <utmp.h>
+#include <unordered_set>
+#include <set>
 
 // 제공 대상 정보 수집
 // host info
@@ -78,11 +82,11 @@ namespace SST {
                 parseProcStat(next_stats); // CPU info
                 parseMemInfo(next_stats); // RAM info
                 getNetDevInfo(next_stats);
-                // network connected clients
-                // number of process
-                // number of file descriptors
+                networkConnectedClients(next_stats); // network connected clients
+                numberOfProcess(next_stats); // number of process
+                fileDescriptorsInfo(next_stats); // number of file descriptors
                 parseUptime(next_stats);  // uptime info
-                // connected users info
+                connectedUsersInfo(next_stats); // connected users info(who)
                 // partitions info
                 // NFS partitions info
                 next_stats.valid_mask = 0xFFFF;
@@ -324,23 +328,97 @@ namespace SST {
         prev_net_tp_ = now;
     }
 
-    // void SystemReader::numberOfProcess(){
+    void SystemReader::numberOfProcess(SystemStats& stats){
+        std::ifstream file("/proc/loadavg");
+        if(!file.is_open()) return;
+        std::string line;
+        if(!std::getline(file, line)) return;
+        std::vector<std::string_view> tokens = SST::Utils::String::split(line);
+        if(tokens.size() < 4) return;
+        std::string proc_info = std::string(tokens[3]);
+        std::vector<std::string_view> tokens2 = SST::Utils::String::split(proc_info, '/');
+        if(tokens2.size() < 2) return;
+        try {
+            stats.proc_count = std::stoi(std::string(tokens2[0]));
+            stats.total_proc_count = std::stoi(std::string(tokens2[1]));
+        } catch (const std::exception& e) {
+            stats.proc_count = 0;
+            stats.total_proc_count = 0;
+            SST::Logger::log("SystemReader::numberOfProcess: parse error");
+        }
+    }
+
+    void SystemReader::fileDescriptorsInfo(SystemStats& stats){
+        // /proc/sys/fs/file-nr
+        std::ifstream file("/proc/sys/fs/file-nr");
+        if(!file.is_open()) return;
+        std::string line;
+        if(!std::getline(file, line)) return;
+        std::vector<std::string_view> tokens = SST::Utils::String::split(line);
+        if(tokens.size() < 3) return;
+        try {
+            stats.fd_info.allocated_fd_cnt = std::stoi(std::string(tokens[0]));
+            stats.fd_info.using_fd_cnt = std::stoi(std::string(tokens[1]));
+            stats.fd_info.max_limit_fd = std::stoi(std::string(tokens[2]));
+        } catch (const std::exception& e) {
+            stats.fd_info.allocated_fd_cnt = 0;
+            stats.fd_info.using_fd_cnt = 0;
+            stats.fd_info.max_limit_fd = 0;
+            SST::Logger::log("SystemReader::fileDescriptorsInfo: parse error");
+        }
+    }
+
+    // 12개의 필드중 4번째 st를 파싱해서 st값이 (01 : Established)인 경우만 카운트
+    // 단, 중복을 잘 고려해야한다.
+    void SystemReader::networkConnectedClients(SystemStats& stats){
+        // /proc/net/tcp
+        const std::vector<std::string> source = {"/proc/net/tcp", "/proc/net/tcp6"};
+        std::unordered_set<std::string> ip_set;
+        int totalCnt = 0;
+
+        for(const auto& path : source){
+            std::ifstream file(path);
+            if(!file.is_opoen()) continue;
+            std::string line;
+            if(!std::getline(file, line)) continue; // 헤더 스킵
+            
+            while(std::getline(file, line)){
+                std::istringstream iss(line);
+                std::string sl, local, remote, state;
+                if (!(iss >> sl >> local >> remote >> state)) continue;
+                if(state == "01"){
+                    auto tokens = SST::Utils::String::split(remote, ':', 2);
+                    if(tokens.size() < 2) continue;
+                    if(ip_set.insert(std:string(tokens[0])).second){
+                        totalCnt++;
+                    }
+                }
+            }
+
+            stats.net_user_count = totalCnt;
+        }
+    }
+
+    void SystemReader::connectedUsersInfo(SystemStats& stats){
+        std::set<std::string> users;
+        // utmp 파일의 시작부분으로 포인터 이동
+        setutent();
+
+        struct utmp* entry;
+        while((entry = getutent()) != nullptr) {
+            if(entry->ut_type == USER_PROCESS){
+                users.insert(entry->ut_user);
+            }
+        }
+        endutent();
+        stats.connected_user_count = static_cast<uint16_t>(users.size());
+    }
+
+    // void SystemReader::partitionsInfo(SystemStats& stats){
 
     // }
 
-    // void SystemReader::fileDescriptorsInfo(){
-
-    // }
-
-    // void SystemReader::connectedUsersInfo(){
-
-    // }
-
-    // void SystemReader::partitionsInfo(){
-
-    // }
-
-    // void SystemReader::nfsPartitionsInfo(){
+    // void SystemReader::nfsPartitionsInfo(SystemStats& stats){
 
     // }
 }

@@ -36,36 +36,42 @@ namespace SST {
         uint32_t err_ps;
         uint32_t drop_ps;
     };
+
+    struct fdInfo {
+        uint16_t allocated_fd_cnt; // 할당된 fd 제한(soft limit)
+        uint16_t using_fd_cnt;    // 현재 시스템애서 사용중인 fd
+        uint64_t max_limit_fd;    // 최대 리밋 제한
+    };
+
     struct SystemStats {
         uint16_t valid_mask;  // 데이터 유효성 마스크
         uint16_t reserved;    // 패딩
         
-        uint8_t cpu_usage;
-        uint8_t mem_usage;
-        uint8_t disk_usage;
-        uint8_t temp_cpu;
+        uint8_t cpu_usage;    // cpu 사용량
+        uint8_t mem_usage;    // memory 사용량
+        uint8_t disk_usage;   // disk 사용량
+        uint8_t temp_cpu;     // cpu 온도
 
-        netInfo net_rx_bytes;
-        netInfo net_tx_bytes;
+        netInfo net_rx_bytes; // network receive bytes
+        netInfo net_tx_bytes; // network transmit bytes
         
         uint16_t proc_count;
-        uint16_t user_count;
+        uint16_t total_proc_count;
+        uint16_t net_user_count;
+        uint16_t connected_user_count;
         uint32_t uptime_secs;
+        fdInfo fd_info;
     };
-
-    
     #pragma pack(pop)
 
-    
-
     static_assert(sizeof(SecureHeader) == 42, "SecureHeader size mismatch");
-    static_assert(sizeof(SystemStats) == 48, "SystemStats size mismatch");
+    static_assert(sizeof(SystemStats) == 64, "SystemStats size mismatch");
 
     // 최초 연결시 서버 호스트 정보를 전달하기 위한 구조체
     struct HostInfo {
-        std::string hostname;
-        std::string os_name;
-        std::string release_info;
+        char hostname[64];
+        char os_name[32];
+        char release_info[64];
     };
 }
 
