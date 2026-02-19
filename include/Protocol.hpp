@@ -9,7 +9,7 @@ namespace SST {
     constexpr uint32_t MAGIC_NUMBER = 0x53535444; // SSTD
     constexpr int HMAC_TAG_SIZE = 16;
 
-    enum class MessageType : uint16_t {
+    enum class MessageType : uint8_t {
         REQ_Connect    = 0x01,
         RES_SystemStat = 0x11,
         RES_HostInfo   = 0x12,

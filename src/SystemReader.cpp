@@ -359,7 +359,7 @@ namespace SST {
         try {
             stats.fd_info.allocated_fd_cnt = std::stoi(std::string(tokens[0]));
             stats.fd_info.using_fd_cnt = std::stoi(std::string(tokens[1]));
-            stats.fd_info.max_limit_fd = std::stoi(std::string(tokens[2]));
+            stats.fd_info.max_limit_fd = std::stoull(std::string(tokens[2]));
         } catch (const std::exception& e) {
             stats.fd_info.allocated_fd_cnt = 0;
             stats.fd_info.using_fd_cnt = 0;
@@ -378,7 +378,7 @@ namespace SST {
 
         for(const auto& path : source){
             std::ifstream file(path);
-            if(!file.is_opoen()) continue;
+            if(!file.is_open()) continue;
             std::string line;
             if(!std::getline(file, line)) continue; // 헤더 스킵
             
@@ -389,7 +389,7 @@ namespace SST {
                 if(state == "01"){
                     auto tokens = SST::Utils::String::split(remote, ':', 2);
                     if(tokens.size() < 2) continue;
-                    if(ip_set.insert(std:string(tokens[0])).second){
+                    if(ip_set.insert(std::string(tokens[0])).second){
                         totalCnt++;
                     }
                 }
