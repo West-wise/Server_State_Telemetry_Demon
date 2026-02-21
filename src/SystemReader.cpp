@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sys/sysinfo.h>
 #include <sys/utsname.h>
+#include <sys/statvfs.h> // statvfs()
 #include <climits>
 #include <cstring>
 #include <string>
@@ -77,21 +78,20 @@ namespace SST {
     void SystemReader::updateLoop() {
         while (running_) {
             {
-                SystemStats next_stats;
+                SystemStats next_stats{};
                 // 데이터 수집
-                // host info -> HostInfo()같은 경우는 지속적으로 보내줄 필요가 없는 정보이니 첫 연결시에 보내주거나 QR에 담아서 인식할 수 있도록 하는것이 어떤지?
-                parseProcStat(next_stats); // CPU info
-                parseMemInfo(next_stats); // RAM info
+                parseProcStat(next_stats);              // CPU info
+                parseMemInfo(next_stats);               // RAM info
                 getNetDevInfo(next_stats);
-                networkConnectedClients(next_stats); // network connected clients
-                numberOfProcess(next_stats); // number of process
-                fileDescriptorsInfo(next_stats); // number of file descriptors
-                parseUptime(next_stats);  // uptime info
-                connectedUsersInfo(next_stats); // connected users info(who)
-                // partitions info
+                networkConnectedClients(next_stats);    // network connected clients
+                numberOfProcess(next_stats);            // number of process
+                fileDescriptorsInfo(next_stats);        // number of file descriptors
+                parseUptime(next_stats);                // uptime info
+                connectedUsersInfo(next_stats);         // connected users info(who)
+                partitionsInfo(next_stats);             // partitions info
                 // NFS partitions info
                 next_stats.valid_mask = 0xFFFF;
-                { // 커밋
+                { // 커밋, 커밋 시점에만 락
                     std::unique_lock lock(mutex_);
                     current_stats_ = next_stats;
                 }
@@ -353,20 +353,14 @@ namespace SST {
         // /proc/sys/fs/file-nr
         std::ifstream file("/proc/sys/fs/file-nr");
         if(!file.is_open()) return;
-        std::string line;
-        if(!std::getline(file, line)) return;
-        std::vector<std::string_view> tokens = SST::Utils::String::split(line);
-        if(tokens.size() < 3) return;
-        try {
-            stats.fd_info.allocated_fd_cnt = std::stoi(std::string(tokens[0]));
-            stats.fd_info.using_fd_cnt = std::stoi(std::string(tokens[1]));
-            stats.fd_info.max_limit_fd = std::stoull(std::string(tokens[2]));
-        } catch (const std::exception& e) {
-            stats.fd_info.allocated_fd_cnt = 0;
-            stats.fd_info.using_fd_cnt = 0;
-            stats.fd_info.max_limit_fd = 0;
-            SST::Logger::log("SystemReader::fileDescriptorsInfo: parse error");
+        
+        uint16_t allocated = 0, used = 0;
+        if(!(file >> allocated >> used)){
+            SST::Logger::log("fileDescriptorsInfo: pared failed");
+            return;
         }
+        stats.fd_info.allocated_fd_cnt = allocated;
+        stats.fd_info.using_fd_cnt = used;
     }
 
     // 12개의 필드중 4번째 st를 파싱해서 st값이 (01 : Established)인 경우만 카운트
@@ -415,9 +409,12 @@ namespace SST {
         stats.connected_user_count = static_cast<uint16_t>(users.size());
     }
 
-    // void SystemReader::partitionsInfo(SystemStats& stats){
-
-    // }
+    void SystemReader::partitionsInfo(SystemStats& stats){
+        std::ifstream file("/proc/self/mountinfo");
+        if(!file.is_open)){
+            stats.disk_root_usage = 0;
+        }
+    }
 
     // void SystemReader::nfsPartitionsInfo(SystemStats& stats){
 

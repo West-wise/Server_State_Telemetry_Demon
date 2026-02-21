@@ -40,7 +40,23 @@ namespace SST {
     struct fdInfo {
         uint16_t allocated_fd_cnt; // 할당된 fd 제한(soft limit)
         uint16_t using_fd_cnt;    // 현재 시스템애서 사용중인 fd
-        uint64_t max_limit_fd;    // 최대 리밋 제한
+    };
+
+    struct DiskSummary {
+        uint64_t total_root;
+        uint64_t used_root;
+
+        uint64_t total_home;
+        uint64_t used_home;
+
+        uint64_t total_var;
+        uint64_t used_var;
+
+        uint64_t total_data;
+        uint64_t used_data;
+
+        uint64_t total_boot;
+        uint64_t used_boot;
     };
 
     struct SystemStats {
@@ -61,17 +77,18 @@ namespace SST {
         uint16_t connected_user_count;
         uint32_t uptime_secs;
         fdInfo fd_info;
+        DiskSummary dict_info;
     };
     #pragma pack(pop)
 
     static_assert(sizeof(SecureHeader) == 42, "SecureHeader size mismatch");
-    static_assert(sizeof(SystemStats) == 64, "SystemStats size mismatch");
+    static_assert(sizeof(SystemStats) == 59, "SystemStats size mismatch");
 
     // 최초 연결시 서버 호스트 정보를 전달하기 위한 구조체
     struct HostInfo {
-        char hostname[64];
-        char os_name[32];
-        char release_info[64];
+        std::string hostname;
+        std::string os_name;
+        std::string release_info;
     };
 }
 
