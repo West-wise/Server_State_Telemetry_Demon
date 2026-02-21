@@ -16,6 +16,7 @@
 #include <utmp.h>
 #include <unordered_set>
 #include <set>
+#include <mntent.h>
 
 // 제공 대상 정보 수집
 // host info
@@ -76,6 +77,8 @@ namespace SST {
     }
 
     void SystemReader::updateLoop() {
+        int disk_update_counter = 0; // disk정보는 자주 변하지 않는 정보이기 때문에 10초마다 갱신
+
         while (running_) {
             {
                 SystemStats next_stats{};
@@ -88,8 +91,14 @@ namespace SST {
                 fileDescriptorsInfo(next_stats);        // number of file descriptors
                 parseUptime(next_stats);                // uptime info
                 connectedUsersInfo(next_stats);         // connected users info(who)
-                partitionsInfo(next_stats);             // partitions info
-                // NFS partitions info
+                if (disk_update_counter == 0) {
+                    partitionsInfo(next_stats);         // partitions info
+                } else {
+                    // 10초가 안되었으면 이전 측정값을 그대로 복사
+                    std::shared_lock lock(mutex_);
+                    next_stats.dict_info = current_stats_.dict_info;
+                }
+                disk_update_counter = (disk_update_counter + 1) % 10;
                 next_stats.valid_mask = 0xFFFF;
                 { // 커밋, 커밋 시점에만 락
                     std::unique_lock lock(mutex_);
@@ -154,7 +163,7 @@ namespace SST {
             iss >> key >> value >> unit;
 
             if (key == "MemTotal:") total_mem = value;
-            else if (key == "MemFree:") free_mem = value; // Available을 쓰는게 더 정확함
+            else if (key == "MemFree:") free_mem = value;
             else if (key == "MemAvailable:") available_mem = value;
         }
         if (available_mem == 0) {
@@ -409,14 +418,30 @@ namespace SST {
         stats.connected_user_count = static_cast<uint16_t>(users.size());
     }
 
-    void SystemReader::partitionsInfo(SystemStats& stats){
-        std::ifstream file("/proc/self/mountinfo");
-        if(!file.is_open)){
-            stats.disk_root_usage = 0;
+    static bool pathExists(const char* path){
+        if(path == nullptr) return false;
+        struct stat st{};
+        return (::stat(path, &st) == 0);
+    }
+
+    static void getDiskUsage(const char* path, uint64_t& total, uint64_t& used){
+        total = 0, used = 0;
+        if(path == nullptr) return;
+        struct statvfs st{};
+        if(statvfs(path, &st) == 0){
+            const uint64_t fr = (uint64_t)st.f_frsize;
+            const uint64_t blocks = (uint64_t)st.f_blocks;
+            const uint64_t bfree = (uint64_t)st.f_bfree;
+            total = blocks * fr;
+            used = (blocks >= bfree) ? ((blocks - bfree) * fr) : 0;
         }
     }
 
-    // void SystemReader::nfsPartitionsInfo(SystemStats& stats){
-
-    // }
+    void SystemReader::partitionsInfo(SystemStats& stats){
+        getDiskUsage("/", stats.dict_info.total_root, stats.dict_info.used_root);
+        getDiskUsage("/home", stats.dict_info.total_home, stats.dict_info.used_home);
+        getDiskUsage("/var", stats.dict_info.total_var, stats.dict_info.used_var);
+        getDiskUsage("/boot", stats.dict_info.total_boot, stats.dict_info.used_boot);
+        getDiskUsage("/data", stats.dict_info.total_data, stats.dict_info.used_data);
+    }
 }
