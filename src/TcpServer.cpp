@@ -198,7 +198,7 @@ namespace SST
         // 브로드캐스트용 바디 생성
         std::vector<uint8_t> body(sizeof(SystemStats));
         std::memcpy(body.data(), &stats, sizeof(SystemStats));
-        std::vector<uint8_t> pkt = PacketUtil::createPacket(0x02, 0, body, secret_key_);
+        // std::vector<uint8_t> pkt = PacketUtil::createPacket(0x02, SST::MessageType::RES_SystemStat, 0, body, secret_key_);
 
         // 각 클라이언트마다 패킷 생성 (각자 시퀀스가 다르므로 개별 생성)
         for (auto& [fd, client_info] : clients_) {
@@ -209,7 +209,7 @@ namespace SST
 
             ClientState& state = state_it->second;
             
-            std::vector<uint8_t> packet = PacketUtil::createPacket(0x02, state.last_seq++, body, secret_key_); 
+            std::vector<uint8_t> packet = PacketUtil::createPacket(0x02, (uint8_t)SST::MessageType::RES_SystemStat, state.last_seq++, body, secret_key_); 
 
             if (!state.write_buffer.write(packet.data(), packet.size())) continue;
             updateEpollEvents(fd, EPOLLIN | EPOLLOUT);
@@ -373,7 +373,7 @@ namespace SST
 
     void TcpServer::sendResponse(int client_fd, uint16_t cmd, const std::vector<uint8_t>& body) {
         ClientState& state = client_states_[client_fd];
-        std::vector<uint8_t> packet = PacketUtil::createPacket(cmd, state.last_seq++, body, secret_key_);
+        std::vector<uint8_t> packet = PacketUtil::createPacket(cmd, (uint8_t)SST::MessageType::RES_HostInfo, state.last_seq++, body, secret_key_);
         
         if (!state.write_buffer.write(packet.data(), packet.size())) {
              return; 

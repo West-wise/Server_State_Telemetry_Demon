@@ -1,3 +1,7 @@
+#ifndef UTILITY_HPP
+#define UTILITY_HPP
+#include <vector>
+#include <charconv>
 
 namespace SST::Utils::String{
     // 공백 제거
@@ -42,3 +46,5 @@ namespace SST::Utils::Network {
         return value; // 호스트 바이트 오더 반환
     }
 }
+
+#endif

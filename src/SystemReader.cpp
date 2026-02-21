@@ -1,4 +1,5 @@
 #include "SystemReader.hpp"
+#include "utility.hpp"
 #include "Config.hpp"
 #include "Logger.hpp"
 #include <fstream>

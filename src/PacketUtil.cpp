@@ -6,13 +6,13 @@
 
 namespace SST {
 
-    std::vector<uint8_t> PacketUtil::createPacket(uint16_t cmd_mask, uint32_t req_id, const std::vector<uint8_t>& body, const std::string& key) {
+    std::vector<uint8_t> PacketUtil::createPacket(uint16_t cmd_mask, uint8_t MsgType ,uint32_t req_id, const std::vector<uint8_t>& body, const std::string& key) {
         SecureHeader hdr;
         std::memset(&hdr, 0, sizeof(SecureHeader));
 
         hdr.magic = MAGIC_NUMBER;
         hdr.version = 0x01;
-        hdr.type = 0x02;
+        hdr.type = MsgType;
         hdr.client_id = 0;
         hdr.cmd_mask = cmd_mask;
         hdr.request_id = req_id;
