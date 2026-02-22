@@ -24,6 +24,7 @@ include_directories(
 set(SOURCES
     main.cpp
     src/TcpServer.cpp
+    src/qrcodegen.cpp
     src/SystemReader.cpp
     src/PacketUtil.cpp
     lib/sha256.cpp
