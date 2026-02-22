@@ -89,10 +89,10 @@ HEADER_SIZE = struct.calcsize(HEADER_FMT)
 #   H (fd_using)
 #   Q (fd_max)
 #
-STATS_FMT = '<HHBBBBIIIIIIIIHHHHIHH'
+STATS_FMT = '<HHBBQIIIQIIIIIHHIIIQQQQQQQQ'
 STATS_SIZE = struct.calcsize(STATS_FMT)
 
-assert STATS_SIZE == 56, f"Stats size mismatch: {STATS_SIZE} != 56"
+assert STATS_SIZE == 134, f"Stats size mismatch: {STATS_SIZE} != 134"
 
 class SSTDClient:
     def __init__(self, config_path='../config/sstd.ini'):
@@ -220,32 +220,38 @@ class SSTDClient:
         # Basic Stats
         cpu = unpacked[2]
         mem = unpacked[3]
-        disk = unpacked[4]
-        temp = unpacked[5]
         
         # Network (RX)
-        rx_bps = unpacked[6]
-        rx_pps = unpacked[7]
-        rx_eps = unpacked[8]
-        rx_dps = unpacked[9]
+        rx_bps = unpacked[4]
+        rx_pps = unpacked[5]
+        rx_eps = unpacked[6]
+        rx_dps = unpacked[7]
         
         # Network (TX)
-        tx_bps = unpacked[10]
-        tx_pps = unpacked[11]
-        tx_eps = unpacked[12]
-        tx_dps = unpacked[13]
+        tx_bps = unpacked[8]
+        tx_pps = unpacked[9]
+        tx_eps = unpacked[10]
+        tx_dps = unpacked[11]
         
         # Counts
-        proc_cnt = unpacked[14]
-        total_proc = unpacked[15]
-        net_users = unpacked[16]
-        conn_users = unpacked[17]
+        proc_cnt = unpacked[12]
+        total_proc = unpacked[13]
+        net_users = unpacked[14]
+        conn_users = unpacked[15]
         
-        uptime = unpacked[18]
+        uptime = unpacked[16]
         
         # FD Info
-        fd_alloc = unpacked[19]
-        fd_using = unpacked[20]
+        fd_alloc = unpacked[17]
+        fd_using = unpacked[18]
+        
+        # Disk Summary (GB conversion for display)
+        gb = 1024 * 1024 * 1024
+        
+        root_total, root_used = unpacked[19] / gb, unpacked[20] / gb
+        home_total, home_used = unpacked[21] / gb, unpacked[22] / gb
+        var_total, var_used = unpacked[23] / gb, unpacked[24] / gb
+        boot_total, boot_used = unpacked[25] / gb, unpacked[26] / gb
 
         # Clear Screen
         if os.name == 'nt':
@@ -255,13 +261,19 @@ class SSTDClient:
         
         print(f"========== System Telemetry (ID: {valid_mask:04x}) ==========")
         print(f" Uptime: {uptime}s")
-        print(f" CPU: {cpu}% ({temp}C) | MEM: {mem}% | DISK: {disk}%")
+        print(f" CPU: {cpu}% | MEM: {mem}%")
         print(f"-"*50)
         print(f" [Network]    RX          TX")
         print(f" Bytes/s      {rx_bps:<10}  {tx_bps:<10}")
         print(f" Pkts/s       {rx_pps:<10}  {tx_pps:<10}")
         print(f" Errors/s     {rx_eps:<10}  {tx_eps:<10}")
         print(f" Drops/s      {rx_dps:<10}  {tx_dps:<10}")
+        print(f"-"*50)
+        print(f" [Disk Usage] (GB)")
+        print(f" /      : {root_used:.1f} / {root_total:.1f} GB")
+        print(f" /home  : {home_used:.1f} / {home_total:.1f} GB")
+        print(f" /var   : {var_used:.1f} / {var_total:.1f} GB")
+        print(f" /boot  : {boot_used:.1f} / {boot_total:.1f} GB")
         print(f"-"*50)
         print(f" Processes: {proc_cnt}/{total_proc}")
         print(f" Users: {net_users} (Active), {conn_users} (Connected)")
