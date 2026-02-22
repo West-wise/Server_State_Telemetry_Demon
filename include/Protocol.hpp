@@ -31,15 +31,15 @@ namespace SST {
 
 
     struct netInfo {
-        uint32_t byte_ps; // ps : per sec
+        uint64_t byte_ps; // ps : per sec
         uint32_t packet_ps;
         uint32_t err_ps;
         uint32_t drop_ps;
     };
 
     struct fdInfo {
-        uint16_t allocated_fd_cnt; // 할당된 fd 제한(soft limit)
-        uint16_t using_fd_cnt;    // 현재 시스템애서 사용중인 fd
+        uint32_t allocated_fd_cnt; // 할당된 fd 제한(soft limit)
+        uint32_t using_fd_cnt;    // 현재 시스템애서 사용중인 fd
     };
 
     struct DiskSummary {
@@ -52,9 +52,6 @@ namespace SST {
         uint64_t total_var;
         uint64_t used_var;
 
-        uint64_t total_data;
-        uint64_t used_data;
-
         uint64_t total_boot;
         uint64_t used_boot;
     };
@@ -65,24 +62,25 @@ namespace SST {
         
         uint8_t cpu_usage;    // cpu 사용량
         uint8_t mem_usage;    // memory 사용량
-        uint8_t disk_usage;   // disk 사용량
-        uint8_t temp_cpu;     // cpu 온도
 
         netInfo net_rx_bytes; // network receive bytes
         netInfo net_tx_bytes; // network transmit bytes
         
-        uint16_t proc_count;
-        uint16_t total_proc_count;
+        uint32_t proc_count;
+        uint32_t total_proc_count;
         uint16_t net_user_count;
         uint16_t connected_user_count;
+
         uint32_t uptime_secs;
+        
         fdInfo fd_info;
-        DiskSummary dict_info;
+        
+        DiskSummary disk_info;
     };
     #pragma pack(pop)
 
     static_assert(sizeof(SecureHeader) == 42, "SecureHeader size mismatch");
-    static_assert(sizeof(SystemStats) == 59, "SystemStats size mismatch");
+    static_assert(sizeof(SystemStats) == 134, "SystemStats size mismatch");
 
     // 최초 연결시 서버 호스트 정보를 전달하기 위한 구조체
     struct HostInfo {

@@ -10,6 +10,7 @@
 #include <sys/sysinfo.h>
 #include <sys/utsname.h>
 #include <sys/statvfs.h> // statvfs()
+#include <sys/stat.h>    // stat()
 #include <climits>
 #include <cstring>
 #include <string>
@@ -96,7 +97,7 @@ namespace SST {
                 } else {
                     // 10초가 안되었으면 이전 측정값을 그대로 복사
                     std::shared_lock lock(mutex_);
-                    next_stats.dict_info = current_stats_.dict_info;
+                    next_stats.disk_info = current_stats_.disk_info;
                 }
                 disk_update_counter = (disk_update_counter + 1) % 10;
                 next_stats.valid_mask = 0xFFFF;
@@ -438,10 +439,9 @@ namespace SST {
     }
 
     void SystemReader::partitionsInfo(SystemStats& stats){
-        getDiskUsage("/", stats.dict_info.total_root, stats.dict_info.used_root);
-        getDiskUsage("/home", stats.dict_info.total_home, stats.dict_info.used_home);
-        getDiskUsage("/var", stats.dict_info.total_var, stats.dict_info.used_var);
-        getDiskUsage("/boot", stats.dict_info.total_boot, stats.dict_info.used_boot);
-        getDiskUsage("/data", stats.dict_info.total_data, stats.dict_info.used_data);
+        getDiskUsage("/", stats.disk_info.total_root, stats.disk_info.used_root);
+        getDiskUsage("/home", stats.disk_info.total_home, stats.disk_info.used_home);
+        getDiskUsage("/var", stats.disk_info.total_var, stats.disk_info.used_var);
+        getDiskUsage("/boot", stats.disk_info.total_boot, stats.disk_info.used_boot);
     }
 }
