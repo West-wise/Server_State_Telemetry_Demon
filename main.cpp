@@ -60,8 +60,9 @@ int main(int argc, char* argv[]) {
         }
         int ext_port = SST::Config::getInt("proxy", "port", port);
 
-        SST::Utils::printTerminalQRCode(ext_host, ext_port, secret_key);
-        return 0; // 즉시 종료
+        std::string server_name = SST::Config::getString("server", "name", "SST-NODE");
+        SST::Utils::printTerminalQRCode(server_name, ext_host, ext_port, secret_key);
+        return 0;
     }
 
     // Async Logger 초기화

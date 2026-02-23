@@ -91,9 +91,9 @@ namespace SST::Utils::Network {
 
 namespace SST::Utils {
     // 터미널에 QR 코드를 ANSI 특수문자 조합으로 그려주는 헬퍼 함수
-    inline void printTerminalQRCode(const std::string& ip, int port, const std::string& key) {
-        // 예: sstd://127.0.0.1:41924?key=3e4a4f4e05...
-        std::string connectionString = "sstd://" + ip + ":" + std::to_string(port) + "?key=" + key;
+    inline void printTerminalQRCode(const std::string& name, const std::string& ip, int port, const std::string& key) {
+        // 예: sst://server?name=SST-DEV-01&ip=192.168.0.10&port=9500&hmac=111111...
+        std::string connectionString = "sst://server?name=" + name + "&ip=" + ip + "&port=" + std::to_string(port) + "&hmac=" + key;
         using qrcodegen::QrCode;
         QrCode qr = QrCode::encodeText(connectionString.c_str(), QrCode::Ecc::LOW);
         int border = 2;
