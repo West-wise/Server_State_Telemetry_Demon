@@ -6,6 +6,7 @@ import hashlib
 import sys
 import os
 import configparser
+import ssl
 from dataclasses import dataclass
 from typing import Optional
 
@@ -18,6 +19,9 @@ HMAC_TAG_SIZE = 16
 #   magic(4) + version(1) + type(1) + client_id(2) +
 #   cmd_mask(2) + req_id(4) + timestamp(8) + body_len(4) + auth_tag(16)
 # Total: 42 bytes
+# If the server and client are on different architectures (e.g. ARM vs x86), 
+# raw struct dumps will have endianness mismatches. C++ code uses native byte order.
+# We explicitly use Little Endian '<' since x86 C++ server uses it.
 HEADER_FMT = '<IBBHHIQI16s'
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
@@ -105,9 +109,9 @@ class SSTDClient:
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Config file not found: {config_path}")
             
-        self.config.read(config_path)
+        self.config.read(config_path, encoding='utf-8')
         
-        self.host = '127.0.0.1' 
+        self.host = '157.230.194.205' 
         self.port = self.config.getint('server', 'port', fallback=41924)
         
         # Load and verify HMAC key
@@ -117,12 +121,16 @@ class SSTDClient:
             
         self.secret_key = bytes.fromhex(hex_key)
         self.sock: Optional[socket.socket] = None
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE  # For testing purposes, disable cert verification
 
     def connect(self):
-        print(f"[*] Connecting to {self.host}:{self.port}...")
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print(f"[*] Connecting to {self.host}:{self.port} with SSL...")
+        raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock = self.ssl_context.wrap_socket(raw_sock, server_hostname=self.host)
         self.sock.connect((self.host, self.port))
-        print("[+] Connected!")
+        print("[+] SSL Connected!")
 
     def send_handshake(self):
         req_id = 1
