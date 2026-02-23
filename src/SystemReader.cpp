@@ -419,12 +419,6 @@ namespace SST {
         stats.connected_user_count = static_cast<uint16_t>(users.size());
     }
 
-    static bool pathExists(const char* path){
-        if(path == nullptr) return false;
-        struct stat st{};
-        return (::stat(path, &st) == 0);
-    }
-
     static void getDiskUsage(const char* path, uint64_t& total, uint64_t& used){
         total = 0, used = 0;
         if(path == nullptr) return;

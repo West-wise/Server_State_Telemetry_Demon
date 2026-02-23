@@ -284,6 +284,7 @@ namespace SST
 
             if (header.magic != MAGIC_NUMBER) {
                  SST::Logger::log("[Error] Invalid Magic from " + std::to_string(client_fd));
+                 SST::Logger::log("[Error] Magic: " + std::to_string(header.magic));
                  handleDisconnect(client_fd);
                  return;
             }
