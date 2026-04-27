@@ -1,8 +1,10 @@
 #include "PacketUtil.hpp"
 #include "Protocol.hpp"
 #include "sha256.hpp"
-#include <cstring>
+#include "siphash.hpp"
 #include <chrono>
+#include <cstring>
+
 
 namespace SST {
 
@@ -29,13 +31,13 @@ namespace SST {
             std::memcpy(packet.data() + sizeof(SecureHeader), body.data(), body.size());
         }
 
-        // 2. HMAC 계산 (전달받은 Key 사용)
-        std::vector<uint8_t> mac = Sha256::hmac(key, packet.data(), packet.size());
-        
-        // 3. Header에 HMAC 주입
-        // packet 벡터 내부의 헤더 영역을 포인터로 다시 얻어옴
-        SecureHeader* final_hdr = reinterpret_cast<SecureHeader*>(packet.data());
-        std::memcpy(final_hdr->auth_tag, mac.data(), HMAC_TAG_SIZE);
+  // 2. SipHash 계산
+  std::vector<uint8_t> key_vec(key.begin(), key.end());
+  std::vector<uint8_t> mac = SipHash::hash(key_vec, packet.data(), packet.size());
+  
+  // 3. Header에 MAC 주입
+  SecureHeader *final_hdr = reinterpret_cast<SecureHeader *>(packet.data());
+  std::memcpy(final_hdr->auth_tag, mac.data(), AUTH_TAG_SIZE);
 
         return packet;
     }
