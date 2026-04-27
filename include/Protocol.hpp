@@ -7,7 +7,7 @@
 
 namespace SST {
     constexpr uint32_t MAGIC_NUMBER = 0x53535444; // SSTD
-    constexpr int HMAC_TAG_SIZE = 16;
+    constexpr int AUTH_TAG_SIZE = 16;
 
     enum class MessageType : uint8_t {
         REQ_Connect    = 0x01,
@@ -22,11 +22,10 @@ namespace SST {
         uint8_t  version;         // 0x01
         uint8_t  type;            // MessageType
         uint16_t client_id;       // 1:N 식별자
-        uint16_t cmd_mask;        // 요청 데이터 마스크, 0x01=HostInfo, 0x20=Stats
         uint32_t request_id;      // 중복 방지 (Sequence)
         uint64_t timestamp;       // Replay 방지 (Unix MS)
         uint32_t body_len;        // Payload 길이
-        uint8_t  auth_tag[HMAC_TAG_SIZE]; // HMAC-SHA256 (Truncated)
+        uint8_t  auth_tag[AUTH_TAG_SIZE]; // SipHash-2-4 (128-bit)
     } __attribute__((packed));
 
 
@@ -79,7 +78,7 @@ namespace SST {
     };
     #pragma pack(pop)
 
-    static_assert(sizeof(SecureHeader) == 42, "SecureHeader size mismatch");
+    static_assert(sizeof(SecureHeader) == 40, "SecureHeader size mismatch");
     static_assert(sizeof(SystemStats) == 134, "SystemStats size mismatch");
 
     // 최초 연결시 서버 호스트 정보를 전달하기 위한 구조체
