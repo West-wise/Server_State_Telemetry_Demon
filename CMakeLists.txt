@@ -27,7 +27,6 @@ set(SOURCES
     src/qrcodegen.cpp
     src/SystemReader.cpp
     src/PacketUtil.cpp
-    lib/sha256.cpp
 )
 
 # 실행 파일 생성

@@ -4,8 +4,8 @@
 #include "Logger.hpp"
 #include "PacketUtil.hpp"
 #include "Protocol.hpp"
+#include "SipHash.hpp"
 #include "SystemReader.hpp"
-#include "sha256.hpp"
 #include <arpa/inet.h>
 #include <atomic>
 #include <cerrno>
@@ -17,7 +17,6 @@
 #include <sys/socket.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
-
 
 namespace SST {
 
