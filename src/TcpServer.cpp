@@ -5,7 +5,7 @@
 #include "PacketUtil.hpp"
 #include "Protocol.hpp"
 #include "SystemReader.hpp"
-#include "sha256.hpp"
+#include "siphash.hpp"
 #include <arpa/inet.h>
 #include <atomic>
 #include <cerrno>
