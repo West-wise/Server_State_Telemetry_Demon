@@ -5,12 +5,72 @@ import hmac
 import hashlib
 import threading  # [MODIFY]
 
+def rotl(x, b):
+    return ((x << b) | (x >> (64 - b))) & 0xFFFFFFFFFFFFFFFF
+
+def siphash128(key: bytes, data: bytes) -> bytes:
+    k0 = int.from_bytes(key[0:8], 'little')
+    k1 = int.from_bytes(key[8:16], 'little')
+    
+    v0 = 0x736f6d6570736575 ^ k0
+    v1 = 0x646f72616e646f6d ^ k1 ^ 0xee
+    v2 = 0x6c7967656e657261 ^ k0
+    v3 = 0x7465646279746573 ^ k1
+    
+    def sipround():
+        nonlocal v0, v1, v2, v3
+        v0 = (v0 + v1) & 0xFFFFFFFFFFFFFFFF
+        v1 = rotl(v1, 13)
+        v1 ^= v0
+        v0 = rotl(v0, 32)
+        v2 = (v2 + v3) & 0xFFFFFFFFFFFFFFFF
+        v3 = rotl(v3, 16)
+        v3 ^= v2
+        v0 = (v0 + v3) & 0xFFFFFFFFFFFFFFFF
+        v3 = rotl(v3, 21)
+        v3 ^= v0
+        v2 = (v2 + v1) & 0xFFFFFFFFFFFFFFFF
+        v1 = rotl(v1, 17)
+        v1 ^= v2
+        v2 = rotl(v2, 32)
+
+    inlen = len(data)
+    left = inlen % 8
+    end = inlen - left
+    b = (inlen << 56) & 0xFFFFFFFFFFFFFFFF
+    
+    for i in range(0, end, 8):
+        mi = int.from_bytes(data[i:i+8], 'little')
+        v3 ^= mi
+        sipround(); sipround()
+        v0 ^= mi
+        
+    t = 0
+    if left > 0:
+        t = int.from_bytes(data[end:], 'little')
+    b |= t
+    
+    v3 ^= b
+    sipround(); sipround()
+    v0 ^= b
+    
+    v2 ^= 0xee
+    sipround(); sipround(); sipround(); sipround()
+    out0 = v0 ^ v1 ^ v2 ^ v3
+    
+    v1 ^= 0xdd
+    sipround(); sipround(); sipround(); sipround()
+    out1 = v0 ^ v1 ^ v2 ^ v3
+    
+    return out0.to_bytes(8, 'little') + out1.to_bytes(8, 'little')
+
 HOST = '127.0.0.1'
 PORT = 41924
 MAGIC = 0x53535444
 HEX_KEY = ""
 SECRET_KEY = bytes.fromhex(HEX_KEY)
-FMT = '<IBBHHIQI16s'  # 42 bytes
+HEADER_FMT = '<IBBHIQI16s'  # 40 bytes (cmd_mask 제거됨)
+HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
 # [MODIFY] 정확히 n바이트 읽기
 def recv_exact(sock: socket.socket, n: int) -> bytes:
@@ -44,11 +104,16 @@ def run_client_instance(idx: int, stop_event: threading.Event, shared: SharedSta
         payload = b"AUTH_ME"
         body_len = len(payload)
         timestamp = int(time.time() * 1000)
-
-        temp_header = struct.pack(FMT, MAGIC, 1, 1, 0, 1, req_id, timestamp, body_len, b'\x00' * 16)
+        
+        # [수정 1] HEADER_FMT 변수명 통일
+        temp_header = struct.pack(HEADER_FMT, 
+                                MAGIC_NUMBER, 1, 1, 0, req_id, timestamp, body_len, b'\x00' * 16)
+        
         full_data = temp_header + payload
-        auth_tag = hmac.new(SECRET_KEY, full_data, hashlib.sha256).digest()[:16]
-        real_header = struct.pack(FMT, MAGIC, 1, 1, 0, 1, req_id, timestamp, body_len, auth_tag)
+        auth_tag = siphash128(SECRET_KEY, full_data) 
+        
+        real_header = struct.pack(HEADER_FMT, 
+                                MAGIC_NUMBER, 1, 1, 0, req_id, timestamp, body_len, auth_tag)
 
         try:
             s.sendall(real_header + payload)
@@ -59,14 +124,16 @@ def run_client_instance(idx: int, stop_event: threading.Event, shared: SharedSta
 
         while not stop_event.is_set():
             try:
-                header_data = recv_exact(s, 42)
+                # [수정 2] 42 대신 HEADER_SIZE(40) 사용
+                header_data = recv_exact(s, HEADER_SIZE)
                 if not header_data:
                     with shared.lock:
                         shared.disc_cnt[idx] += 1
                     break
 
-                magic, ver, type_, cid, cmd, seq, ts, body_len, tag = struct.unpack(FMT, header_data)
-                if magic != MAGIC:
+                # [수정 3] cmd 변수 제거 (9개 -> 8개)
+                magic, ver, type_, cid, seq, ts, body_len, tag = struct.unpack(HEADER_FMT, header_data)
+                if magic != MAGIC_NUMBER:
                     with shared.lock:
                         shared.err_cnt[idx] += 1
                     break
@@ -99,7 +166,7 @@ def run_multi_clients(n_clients: int = 50, duration_sec: int = 30):
     # [MODIFY] 1초마다 요약 출력 (출력량 최소)
     start = time.time()
     try:
-        while time.time() - start < duration_sec:
+       while time.time() - start < duration_sec:
             time.sleep(1)
 
             with shared.lock:
@@ -108,6 +175,12 @@ def run_multi_clients(n_clients: int = 50, duration_sec: int = 30):
                 total_disc = sum(shared.disc_cnt)
 
             print(f"[SUMMARY] clients={n_clients} ok_packets={total_ok} err={total_err} disc={total_disc}")
+
+            # [추가] GitHub Actions CI 자동화를 위해 에러 시 프로세스 실패(Exit 1) 처리
+            if total_err > 0:
+                print("[!] Test failed due to packet errors.")
+                import sys
+                sys.exit(1)
 
     except KeyboardInterrupt:
         pass

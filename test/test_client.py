@@ -10,6 +10,66 @@ import ssl
 from dataclasses import dataclass
 from typing import Optional
 
+
+def rotl(x, b):
+    return ((x << b) | (x >> (64 - b))) & 0xFFFFFFFFFFFFFFFF
+
+def siphash128(key: bytes, data: bytes) -> bytes:
+    k0 = int.from_bytes(key[0:8], 'little')
+    k1 = int.from_bytes(key[8:16], 'little')
+    
+    v0 = 0x736f6d6570736575 ^ k0
+    v1 = 0x646f72616e646f6d ^ k1 ^ 0xee
+    v2 = 0x6c7967656e657261 ^ k0
+    v3 = 0x7465646279746573 ^ k1
+    
+    def sipround():
+        nonlocal v0, v1, v2, v3
+        v0 = (v0 + v1) & 0xFFFFFFFFFFFFFFFF
+        v1 = rotl(v1, 13)
+        v1 ^= v0
+        v0 = rotl(v0, 32)
+        v2 = (v2 + v3) & 0xFFFFFFFFFFFFFFFF
+        v3 = rotl(v3, 16)
+        v3 ^= v2
+        v0 = (v0 + v3) & 0xFFFFFFFFFFFFFFFF
+        v3 = rotl(v3, 21)
+        v3 ^= v0
+        v2 = (v2 + v1) & 0xFFFFFFFFFFFFFFFF
+        v1 = rotl(v1, 17)
+        v1 ^= v2
+        v2 = rotl(v2, 32)
+
+    inlen = len(data)
+    left = inlen % 8
+    end = inlen - left
+    b = (inlen << 56) & 0xFFFFFFFFFFFFFFFF
+    
+    for i in range(0, end, 8):
+        mi = int.from_bytes(data[i:i+8], 'little')
+        v3 ^= mi
+        sipround(); sipround()
+        v0 ^= mi
+        
+    t = 0
+    if left > 0:
+        t = int.from_bytes(data[end:], 'little')
+    b |= t
+    
+    v3 ^= b
+    sipround(); sipround()
+    v0 ^= b
+    
+    v2 ^= 0xee
+    sipround(); sipround(); sipround(); sipround()
+    out0 = v0 ^ v1 ^ v2 ^ v3
+    
+    v1 ^= 0xdd
+    sipround(); sipround(); sipround(); sipround()
+    out1 = v0 ^ v1 ^ v2 ^ v3
+    
+    return out0.to_bytes(8, 'little') + out1.to_bytes(8, 'little')
+
 # [Protocol Constants]
 MAGIC_NUMBER = 0x53535444
 HMAC_TAG_SIZE = 16
@@ -22,77 +82,8 @@ HMAC_TAG_SIZE = 16
 # If the server and client are on different architectures (e.g. ARM vs x86), 
 # raw struct dumps will have endianness mismatches. C++ code uses native byte order.
 # We explicitly use Little Endian '<' since x86 C++ server uses it.
-HEADER_FMT = '<IBBHHIQI16s'
+HEADER_FMT = '<IBBHIQI16s'
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
-
-# SystemStats (64 bytes) matches C++ struct:
-#   uint16_t valid_mask;  // 2
-#   uint16_t reserved;    // 2
-#   uint8_t cpu_usage;    // 1
-#   uint8_t mem_usage;    // 1
-#   uint8_t disk_usage;   // 1
-#   uint8_t temp_cpu;     // 1
-#
-#   netInfo net_rx_bytes; // 16 (4*4)
-#   netInfo net_tx_bytes; // 16 (4*4)
-#
-#   uint16_t proc_count;          // 2
-#   uint16_t total_proc_count;    // 2
-#   uint16_t net_user_count;      // 2
-#   uint16_t connected_user_count;// 2
-#   uint32_t uptime_secs;         // 4
-#   fdInfo fd_info;               // 8 (2+2+4?) -> needs check
-#   ... Actually let's check fdInfo definition again.
-#   struct fdInfo {
-#       uint16_t allocated_fd_cnt; // 2
-#       uint16_t using_fd_cnt;     // 2
-#       uint64_t max_limit_fd;     // 8  <-- WAIT, C++ said uint64_t.
-#   };
-#
-#   Let's re-verify Protocol.hpp sizes.
-#   netInfo: 4*4 = 16 bytes.
-#   fdInfo: 2+2+8 = 12 bytes?
-#   But SystemStats size is asserted as 64 bytes.
-#
-#   Let's check offsets in C++:
-#   0: valid_mask(2)
-#   2: reserved(2)
-#   4: cpu(1)
-#   5: mem(1)
-#   6: disk(1)
-#   7: temp(1)
-#   8: net_rx(16) -> 24
-#   24: net_tx(16) -> 40
-#   40: proc_count(2)
-#   42: total_proc_count(2)
-#   44: net_user_count(2)
-#   46: connected_user_count(2)
-#   48: uptime_secs(4) -> 52
-#   52: fd_info(??)
-#
-#   If fd_info is 12 bytes (2+2+8), then 52+12 = 64. Matches!
-#
-#   So Python fmt:
-#   H H B B B B (4s) (16s) (16s) H H H H I H H Q
-#   Wait, netInfo is 4 uint32_t.
-#   So:
-#   H (valid)
-#   H (reserved)
-#   B (cpu)
-#   B (mem)
-#   B (disk)
-#   B (temp)
-#   4I (net_rx)
-#   4I (net_tx)
-#   H (proc)
-#   H (total_proc)
-#   H (net_user)
-#   H (conn_user)
-#   I (uptime)
-#   H (fd_alloc)
-#   H (fd_using)
-#   Q (fd_max)
-#
 STATS_FMT = '<HHBBQIIIQIIIIIHHIIIQQQQQQQQ'
 STATS_SIZE = struct.calcsize(STATS_FMT)
 
@@ -138,19 +129,20 @@ class SSTDClient:
         body_len = len(payload)
         timestamp = int(time.time() * 1000)
         
-        # 16 bytes padding/tag placeholder
+        # cmd_mask 파라미터(0, 1) 제거됨
         temp_header = struct.pack(HEADER_FMT, 
-                                MAGIC_NUMBER, 1, 1, 0, 1, req_id, timestamp, body_len, b'\x00' * 16)
+                                MAGIC_NUMBER, 1, 1, 0, req_id, timestamp, body_len, b'\x00' * 16)
         
         full_data = temp_header + payload
-        auth_tag = hmac.new(self.secret_key, full_data, hashlib.sha256).digest()[:16]
+        
+        # [수정됨] hmac 대신 siphash128 사용
+        auth_tag = siphash128(self.secret_key, full_data) 
         
         real_header = struct.pack(HEADER_FMT, 
-                                MAGIC_NUMBER, 1, 1, 0, 1, req_id, timestamp, body_len, auth_tag)
+                                MAGIC_NUMBER, 1, 1, 0, req_id, timestamp, body_len, auth_tag)
                                 
         self.sock.sendall(real_header + payload)
         print("[*] Handshake sent.")
-
     def run(self):
         try:
             self.connect()
