@@ -41,8 +41,9 @@ TcpServer::TcpServer(int port)
     throw std::runtime_error(
         "Insecure configuration - server refused to start");
   } else if (hex_key.size() != 16) {
-    SST::Logger::log("[FATAL] Hash Key length is must be 16 bytes") throw std::
-        runtime_error("Insecure configuration - server refused to start");
+    SST::Logger::log("[FATAL] Hash Key length is must be 16 bytes");
+    throw std::runtime_error(
+        "Insecure configuration - server refused to start");
   }
 
   secret_key_ = hexToBytes(hex_key);

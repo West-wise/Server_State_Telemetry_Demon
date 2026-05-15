@@ -327,7 +327,7 @@ void SystemReader::fileDescriptorsInfo(SystemStats &stats) {
   if (!file.is_open())
     return;
 
-  uint16_t allocated = 0, free = 0, used = 0;
+  uint16_t allocated = 0, free = 0;
   if (!(file >> allocated >> free)) {
     SST::Logger::log("fileDescriptorsInfo: pared failed");
     return;
@@ -342,7 +342,7 @@ void SystemReader::networkConnectedClients(SystemStats &stats) {
   // /proc/net/tcp
   const std::vector<std::string> source = {"/proc/net/tcp", "/proc/net/tcp6"};
   std::unordered_set<std::string> ip_set;
-  int totalCnt = 0;
+  // int totalCnt = 0;
 
   for (const auto &path : source) {
     std::ifstream file(path);
