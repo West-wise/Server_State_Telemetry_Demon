@@ -92,23 +92,38 @@ assert STATS_SIZE == 134, f"Stats size mismatch: {STATS_SIZE} != 134"
 class SSTDClient:
     def __init__(self, config_path='../config/sstd.ini'):
         self.config = configparser.ConfigParser()
+        
         if not os.path.exists(config_path):
              # Try relative to script location
              base_dir = os.path.dirname(os.path.abspath(__file__))
              config_path = os.path.join(base_dir, '..', 'config', 'sstd.ini')
              
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Config file not found: {config_path}")
+        if os.path.exists(config_path):
+            self.config.read(config_path, encoding='utf-8')
             
-        self.config.read(config_path, encoding='utf-8')
+        # 우선 환경변수에서 값을 가져옵니다 (GitHub Actions 지원)
+        self.host = os.environ.get('SSTD_HOST', '157.230.194.205') 
         
-        self.host = '157.230.194.205' 
-        self.port = self.config.getint('server', 'port', fallback=41924)
+        env_port = os.environ.get('SSTD_PORT')
+        if env_port:
+            self.port = int(env_port)
+        else:
+            try:
+                port_str = self.config.get('server', 'port', fallback='41924').strip()
+                self.port = int(port_str) if port_str else 41924
+            except (ValueError, configparser.NoSectionError, configparser.NoOptionError):
+                self.port = 41924
         
         # Load and verify HMAC key
-        hex_key = self.config.get('security', 'hash_key', fallback='').strip('"').strip("'")
+        hex_key = os.environ.get('SSTD_HASH_KEY')
         if not hex_key:
-            raise ValueError("HMAC key not found in config")
+            try:
+                hex_key = self.config.get('security', 'hash_key', fallback='').strip('"').strip("'")
+            except (configparser.NoSectionError, configparser.NoOptionError):
+                hex_key = ''
+                
+        if not hex_key:
+            raise ValueError("hash_key not found in environment variables or config")
             
         self.secret_key = bytes.fromhex(hex_key)
         self.sock: Optional[socket.socket] = None
