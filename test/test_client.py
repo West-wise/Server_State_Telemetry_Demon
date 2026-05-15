@@ -106,7 +106,7 @@ class SSTDClient:
         self.port = self.config.getint('server', 'port', fallback=41924)
         
         # Load and verify HMAC key
-        hex_key = self.config.get('security', 'hmac_key', fallback='').strip('"').strip("'")
+        hex_key = self.config.get('security', 'hash_key', fallback='').strip('"').strip("'")
         if not hex_key:
             raise ValueError("HMAC key not found in config")
             
