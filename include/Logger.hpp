@@ -13,7 +13,6 @@
 #include <string_view>
 #include <thread>
 
-
 namespace SST {
 
 class Logger {
@@ -100,6 +99,12 @@ private:
         if (log_file_.is_open()) {
           log_file_ << msg << std::endl;
         }
+      }
+    }
+    while (!log_queue_.empty()) {
+      if (log_file_.is_open()) {
+        log_file_ << log_queue_.front() << '\n';
+        log_queue_.pop();
       }
     }
   }
