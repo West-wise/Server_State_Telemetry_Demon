@@ -49,7 +49,6 @@ public:
   void setStopFlag(volatile sig_atomic_t *flag) { stop_flag_ = flag; }
 
 private:
-private:
   std::string secret_key_; // Config에서 로드된 비밀키
 
   int port_;          // 서버 포트

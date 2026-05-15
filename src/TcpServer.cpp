@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <atomic>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
@@ -33,12 +34,15 @@ static std::string hexToBytes(const std::string &hex) {
 TcpServer::TcpServer(int port)
     : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1) {
   // 7. Config에서 키 로드 (필수 검증)
-  std::string hex_key = Config::getString("security", "hmac_key", "");
+  std::string hex_key = Config::getString("security", "hash_key", "");
   if (hex_key.empty()) {
-    std::cerr << "[FATAL] No secure HMAC key configured in config/sstd.ini!"
-              << std::endl;
+    SST::Logger::log(
+        "[FATAL] No secure Hash key configured in config/sstd.ini!");
     throw std::runtime_error(
         "Insecure configuration - server refused to start");
+  } else if (hex_key.size() != 16) {
+    SST::Logger::log("[FATAL] Hash Key length is must be 16 bytes") throw std::
+        runtime_error("Insecure configuration - server refused to start");
   }
 
   secret_key_ = hexToBytes(hex_key);
@@ -192,10 +196,15 @@ void TcpServer::broadcastStats() {
   // 브로드캐스트용 바디 생성
   std::vector<uint8_t> body(sizeof(SystemStats));
   std::memcpy(body.data(), &stats, sizeof(SystemStats));
-  // std::vector<uint8_t> pkt = PacketUtil::createPacket(0x02,
-  // SST::MessageType::RES_SystemStat, 0, body, secret_key_);
 
-  // 각 클라이언트마다 패킷 생성 (각자 시퀀스가 다르므로 개별 생성)
+  // 1. 단일 패킷 버퍼 사전 할당 및 바디 복사 (재사용 목적)
+  std::vector<uint8_t> packet = PacketUtil::createPacket(
+      (uint8_t)SST::MessageType::RES_SystemStat, 0, body, secret_key_);
+
+  SecureHeader *header = reinterpret_cast<SecureHeader *>(packet.data());
+  std::vector<uint8_t> key_vec(secret_key_.begin(), secret_key_.end());
+
+  // 2. 각 클라이언트마다 헤더만 수정하여 브로드캐스트
   for (auto &[fd, client_info] : clients_) {
     if (!client_info.authenticated)
       continue;
@@ -206,9 +215,15 @@ void TcpServer::broadcastStats() {
 
     ClientState &state = state_it->second;
 
-    std::vector<uint8_t> packet =
-        PacketUtil::createPacket((uint8_t)SST::MessageType::RES_SystemStat,
-                                 state.last_seq++, body, secret_key_);
+    // 헤더의 sequence 번호 수정
+    header->request_id = state.last_seq++;
+
+    // Auth Tag 초기화
+    std::memset(header->auth_tag, 0, AUTH_TAG_SIZE);
+    // SipHash 재계산
+    std::vector<uint8_t> calc_tag =
+        SST::SipHash::hash(key_vec, packet.data(), packet.size());
+    std::memcpy(header->auth_tag, calc_tag.data(), AUTH_TAG_SIZE);
 
     if (!state.write_buffer.write(packet.data(), packet.size()))
       continue;
