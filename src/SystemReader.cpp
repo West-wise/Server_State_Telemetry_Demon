@@ -19,7 +19,6 @@
 #include <utmp.h>
 #include <vector>
 
-
 // 제공 대상 정보 수집
 // host info
 // CPU info
@@ -62,19 +61,6 @@ void SystemReader::stop() {
 SystemStats SystemReader::getStats() {
   std::shared_lock lock(mutex_);
   return current_stats_;
-}
-
-// 최초 실행시 호스트 정보 수집(해당 정보는 변하지 않으므로 캐싱)
-HostInfo SystemReader::getHostInfo() {
-  std::call_once(init_flag_, [this]() {
-    HostInfo local = this->collectHostInfo();
-    {
-      std::unique_lock<std::shared_mutex> wlock(mutex_);
-      host_info_ = std::move(local);
-    }
-  });
-  std::shared_lock<std::shared_mutex> rlock(mutex_);
-  return host_info_;
 }
 
 void SystemReader::updateLoop() {
@@ -200,49 +186,6 @@ std::string SystemReader::getHostName() {
     return std::string(hostname_buf);
   }
   return "Unknown";
-}
-
-HostInfo SystemReader::collectHostInfo() {
-  HostInfo out{};
-
-  // 기본값 설정
-  std::string hostname = getHostName();
-  std::string os_name = "Unknown OS";
-  std::string release_info = "Unknown Release";
-
-  // Uname 정보 수집 시도
-  struct utsname sys_info;
-  if (uname(&sys_info) != -1) {
-    out.os_name =
-        std::string(sys_info.sysname) + " " + std::string(sys_info.release);
-  } else {
-    SST::Logger::log("[Warning] Failed to get system info using uname");
-  }
-
-  // os-release 파일 읽기 시도
-  const char *paths[] = {"/etc/os-release", "/usr/lib/os-release"};
-  for (const char *path : paths) {
-    std::ifstream file(path);
-    if (!file.is_open())
-      continue;
-
-    std::string line;
-    while (std::getline(file, line)) {
-      if (line.empty() || line[0] == '#')
-        continue;
-      std::istringstream ss(line);
-      std::string key, value;
-      if (std::getline(ss, key, '=') && std::getline(ss, value)) {
-        if (key == "PRETTY_NAME") {
-          out.release_info = std::string(SST::Utils::String::trim(value));
-          break;
-        }
-      }
-    }
-    if (out.release_info != "Unknown Release")
-      break;
-  }
-  return out;
 }
 
 bool SystemReader::parseNetDevInfo(NetCounter &out) {

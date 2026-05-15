@@ -141,9 +141,6 @@ void TcpServer::initTimer() {
 
 void TcpServer::run() {
   is_running_ = true;
-  // 최초 실행시 호스트 정보 수집
-  // 이 정보는 거의 바뀌지 않음으로 서버 실행시 단 한번 수집후 지속적으로 사용
-  HostInfo host_info = SST::SystemReader::getInstance().getHostInfo();
   while (is_running_) {
     if (stop_flag_ && *stop_flag_) {
       is_running_ = false;
