@@ -34,7 +34,7 @@ static std::string hexToBytes(const std::string &hex) {
 TcpServer::TcpServer(int port)
     : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1) {
   // 7. Config에서 키 로드 (필수 검증)
-  std::string hex_key = Config::getString("security", "hash_key", "");
+  std::string hex_key(SST::Config::getHashKey());
   if (hex_key.empty()) {
     SST::Logger::log(
         "[FATAL] No secure Hash key configured in config/sstd.ini!");
