@@ -27,6 +27,11 @@ jobs:
           make
 
       - name: Run Server and Test
+        env:
+          SSTD_HOST: ${{ secrets.HOST }}
+          SSTD_PORT: ${{ secrets.PORT }}
+          HASH_KEY: ${{ secrets.HASH_KEY }}
+
         run: |
           cd build
           ./SST_Demon & 

@@ -115,15 +115,31 @@ class SSTDClient:
                 self.port = 41924
         
         # Load and verify HMAC key
-        hex_key = os.environ.get('SSTD_HASH_KEY')
+        hex_key = os.environ.get('HASH_KEY')
+        
+        # 1. 파일에서 키 읽어오기 시도 (sstd.key)
+        if not hex_key:
+            search_paths = [
+                'sstd.key',
+                '../sstd.key',
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'sstd.key'),
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'build', 'sstd.key')
+            ]
+            for path in search_paths:
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        hex_key = f.read().strip()
+                    break
+                    
+        # 2. 그래도 없으면 기존 방식 (ini 파일)
         if not hex_key:
             try:
                 hex_key = self.config.get('security', 'hash_key', fallback='').strip('"').strip("'")
             except (configparser.NoSectionError, configparser.NoOptionError):
-                hex_key = ''
+                pass
                 
         if not hex_key:
-            raise ValueError("hash_key not found in environment variables or config")
+            raise ValueError("hash_key not found in environment variables, sstd.key, or config")
             
         self.secret_key = bytes.fromhex(hex_key)
         self.sock: Optional[socket.socket] = None
