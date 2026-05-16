@@ -1,10 +1,8 @@
 #include "PacketUtil.hpp"
 #include "Protocol.hpp"
-#include "sha256.hpp"
 #include "siphash.hpp"
 #include <chrono>
 #include <cstring>
-
 
 namespace SST {
 
@@ -36,8 +34,9 @@ std::vector<uint8_t> PacketUtil::createPacket(uint8_t MsgType, uint32_t req_id,
 
   // 2. SipHash 계산
   std::vector<uint8_t> key_vec(key.begin(), key.end());
-  std::vector<uint8_t> mac = SipHash::hash(key_vec, packet.data(), packet.size());
-  
+  std::vector<uint8_t> mac =
+      SipHash::hash(key_vec, packet.data(), packet.size());
+
   // 3. Header에 MAC 주입
   SecureHeader *final_hdr = reinterpret_cast<SecureHeader *>(packet.data());
   std::memcpy(final_hdr->auth_tag, mac.data(), AUTH_TAG_SIZE);

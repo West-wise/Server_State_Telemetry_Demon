@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 
-
 // Signal handling
 volatile sig_atomic_t g_stop_signal = 0;
 
@@ -47,24 +46,26 @@ int main(int argc, char *argv[]) {
 
   // 설정 값 읽기
   int port = SST::Config::getInt("server", "port", 41924);
-  std::string log_path = SST::Config::getString("log", "path", "logs/sstd.log");
-  std::string secret_key = SST::Config::getString("security", "hash_key", "");
+  std::string log_path(SST::Config::getString("log", "path", "logs/sstd.log"));
+  std::string secret_key(
+      SST::Config::getHashKey()); // getHashKey() 사용으로 최적화
 
   if (show_qr) {
-    std::string ext_host = SST::Config::getString("proxy", "host", "");
+    std::string ext_host(SST::Config::getString("proxy", "host", ""));
     if (ext_host.empty()) {
-      std::string ext_interface =
-          SST::Config::getString("proxy", "interface", "");
+      std::string ext_interface(
+          SST::Config::getString("proxy", "interface", ""));
       if (!ext_interface.empty()) {
         ext_host = SST::Utils::Network::getInterfaceIP(ext_interface);
       } else {
-        ext_host = SST::Config::getString("server", "ip", "127.0.0.1");
+        ext_host =
+            std::string(SST::Config::getString("server", "ip", "127.0.0.1"));
       }
     }
     int ext_port = SST::Config::getInt("proxy", "port", port);
 
-    std::string server_name =
-        SST::Config::getString("server", "name", "SST-NODE");
+    std::string server_name(
+        SST::Config::getString("server", "name", "SST-NODE"));
     SST::Utils::printTerminalQRCode(server_name, ext_host, ext_port,
                                     secret_key);
     return 0;

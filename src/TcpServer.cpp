@@ -35,18 +35,18 @@ TcpServer::TcpServer(int port)
     : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1) {
   // 7. Config에서 키 로드 (필수 검증)
   std::string hex_key(SST::Config::getHashKey());
+  secret_key_ = hexToBytes(hex_key);
   if (hex_key.empty()) {
     SST::Logger::log(
         "[FATAL] No secure Hash key configured in config/sstd.ini!");
     throw std::runtime_error(
         "Insecure configuration - server refused to start");
-  } else if (hex_key.size() != 16) {
-    SST::Logger::log("[FATAL] Hash Key length is must be 16 bytes");
+  } else if (secret_key_.size() != 16) {
+    SST::Logger::log(
+        "[FATAL] Hash Key length must be 32 characters (16 bytes hex)");
     throw std::runtime_error(
         "Insecure configuration - server refused to start");
   }
-
-  secret_key_ = hexToBytes(hex_key);
 
   initSocket();
   initEpoll();
