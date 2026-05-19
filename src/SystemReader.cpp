@@ -10,7 +10,6 @@
 #include <unistd.h>
 #include <utmp.h>
 
-
 // 제공 대상 정보 수집
 // host info
 // CPU info
@@ -303,10 +302,11 @@ void SystemReader::numberOfProcess(SystemStats &stats) {
       SST::Utils::String::split(proc_info, '/');
   if (tokens2.size() < 2)
     return;
-  try {
-    stats.proc_count = std::stoi(std::string(tokens2[0]));
-    stats.total_proc_count = std::stoi(std::string(tokens2[1]));
-  } catch (const std::exception &e) {
+  auto res1 = std::from_chars(tokens2[0].data(), tokens2[0].data() + tokens2[0].size(), stats.proc_count);
+  auto res2 = std::from_chars(tokens2[1].data(), tokens2[1].data() + tokens2[1].size(), stats.total_proc_count);
+
+  // 파싱에 하나라도 실패했다면 (std::errc()는 성공을 의미)
+  if (res1.ec != std::errc() || res2.ec != std::errc()) {
     stats.proc_count = 0;
     stats.total_proc_count = 0;
     SST::Logger::log("SystemReader::numberOfProcess: parse error");
