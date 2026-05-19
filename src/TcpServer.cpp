@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <stdexcept>
 #include <sys/socket.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
