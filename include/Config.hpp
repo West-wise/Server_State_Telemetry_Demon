@@ -126,8 +126,6 @@ private:
 
     const char *hex_chars = "0123456789abcdef";
     hash_key_.clear();
-    for (size_t i = 0; i < hash_key_.length(); i += 2) {
-    }
     for (uint8_t byte : tmp_key) {
       hash_key_.push_back(hex_chars[byte >> 4]);
       hash_key_.push_back(hex_chars[byte & 0x0F]);
