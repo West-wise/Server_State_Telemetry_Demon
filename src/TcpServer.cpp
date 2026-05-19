@@ -68,12 +68,15 @@ void TcpServer::initSocket() {
   }
 
   struct sockaddr_in addr;
+  char ip_buf[INET_ADDRSTRLEN];
   std::memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = INADDR_ANY;
-  SST::Logger::log(std::string("[Server] Binding to address ") +
-                   inet_ntoa(*(in_addr *)&addr.sin_addr.s_addr));
   addr.sin_port = htons(port_);
+  const char *ip_str =
+      inet_ntop(AF_INET, &addr.sin_addr, ip_buf, INET_ADDRSTRLEN);
+  SST::Logger::log(std::string("[Server] Binding to address ") +
+                   (ip_str ? ip_str : "Unknown"));
 
   setNonBlocking(server_fd_.get());
   if (bind(server_fd_.get(), (struct sockaddr *)&addr, sizeof(addr)) < 0) {
