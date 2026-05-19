@@ -66,7 +66,7 @@ def siphash128(key: bytes, data: bytes) -> bytes:
 
 HOST = '127.0.0.1'
 PORT = 41924
-MAGIC = 0x53535444
+MAGIC_NUMBER = 0x53535444
 HEX_KEY = ""
 SECRET_KEY = bytes.fromhex(HEX_KEY)
 HEADER_FMT = '<IBBHIQI16s'  # 40 bytes (cmd_mask 제거됨)
