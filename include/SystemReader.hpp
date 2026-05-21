@@ -39,8 +39,6 @@ private:
   // 시스템 통계 관련
   SystemStats current_stats_{};
 
-  std::once_flag init_flag_;
-
   // CPU Usage Calculation State
   struct CpuData {
     uint64_t total_time = 0;
