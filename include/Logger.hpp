@@ -143,7 +143,7 @@ private:
       if (log_file_.is_open()) {
         log_file_ << tmp_queue.front() << '\n';
       }
-      log_queue_.pop();
+      tmp_queue.pop();
     }
   }
 };

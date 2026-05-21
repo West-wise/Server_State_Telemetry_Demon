@@ -7,7 +7,7 @@
 #include <atomic>
 #include <csignal>
 #include <cstdint>
-#include <map>
+#include <unordered_map>
 #include <string>
 #include <sys/epoll.h>
 #include <sys/socket.h>
@@ -19,9 +19,7 @@ struct ClientInfo {
   std::string ip_address;
   bool authenticated = false;
 
-  ClientInfo(int fd, const std::string &ip, bool auth)
-      : socket_fd(std::move(fd)), ip_address(std::move(ip)),
-        authenticated(auth) {}
+  ClientInfo(int fd, std::string ip, bool auth) : socket_fd(fd), ip_address(std::move(ip)), authenticated(auth) {}
   ClientInfo() = default;
 };
 struct ClientState {
@@ -63,10 +61,10 @@ private:
 
   // 연결된 클라이언트 관리 map
   // key: 소켓 파일 디스크립터, value: 클라이언트 정보
-  std::map<int, ClientInfo> clients_;
+  std::unordered_map<int, ClientInfo> clients_;
   // 클라이언트 상태 관리 map
   // key: 소켓 파일 디스크립터, value: 클라이언트 상태
-  std::map<int, ClientState> client_states_;
+  std::unordered_map<int, ClientState> client_states_;
 
   void initSocket();       // 소켓 생성 및 초기화
   void initEpoll();        // epoll 인스턴스 생성

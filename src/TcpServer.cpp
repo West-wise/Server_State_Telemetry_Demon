@@ -32,13 +32,16 @@ TcpServer::TcpServer(int port)
     : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1) {
   // 7. Config에서 키 로드 (필수 검증)
   std::string hex_key(SST::Config::getHashKey());
-  secret_key_ = hexToBytes(hex_key);
+  
   if (hex_key.empty()) {
     SST::Logger::log(
         "[FATAL] No secure Hash key configured in config/sstd.ini!");
     throw std::runtime_error(
         "Insecure configuration - server refused to start");
-  } else if (secret_key_.size() != 16) {
+  } 
+
+  secret_key_ = hexToBytes(hex_key);
+  if (secret_key_.size() != 16) {
     SST::Logger::log(
         "[FATAL] Hash Key length must be 32 characters (16 bytes hex)");
     throw std::runtime_error(
@@ -107,8 +110,7 @@ void TcpServer::initEpoll() {
   event.events = EPOLLIN;
   event.data.fd = server_fd_.get();
 
-  if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, server_fd_.get(), &event) ==
-      -1) {
+  if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, server_fd_.get(), &event) == -1) {
     throw std::runtime_error("Epoll ctl add server fd failed");
   }
 }
@@ -175,7 +177,8 @@ void TcpServer::run() {
           handleClientData(cur_fd); // 클라이언트 데이터 처리
         } else if (ev & EPOLLOUT) {
           handleWrite(cur_fd); // 클라이언트 쓰기 처리
-        } else if (ev & (EPOLLERR | EPOLLHUP)) {
+        } 
+        if (ev & (EPOLLERR | EPOLLHUP)) {
           handleDisconnect(cur_fd); // 클라이언트 연결 해제 관리
         }
       }
@@ -255,11 +258,13 @@ void TcpServer::acceptConnection() {
     }
 
     int fd_val = client_fd.get();
-    std::string ip = inet_ntoa(client_addr.sin_addr);
+    char buf[INET_ADDRSTRLEN];
+    const char *ip_ptr = inet_ntop(AF_INET, &client_addr.sin_addr, buf, INET_ADDRSTRLEN);
+    std::string ip = ip_ptr ? ip_ptr : "Unknown";
     clients_.erase(fd_val);
     client_states_.erase(fd_val);
 
-    clients_.emplace(fd_val, ClientInfo(std::move(client_fd.get()), ip, false));
+    clients_.emplace(fd_val, ClientInfo(client_fd.get(), ip, false));
     client_states_.emplace(fd_val, ClientState());
     client_fd.release(); // FD 제어권은 map으로 이동
 
@@ -334,7 +339,14 @@ void TcpServer::handleDisconnect(int client_fd) {
 }
 
 bool TcpServer::processPacket(int client_fd, std::vector<uint8_t> &packet) {
+  auto it = clients_.find(client_fd);
+  if (it == clients_.end()) {
+    SST::Logger::log("[Error] processPacket called for unregistered client fd: " + std::to_string(client_fd));
+    return false;
+  }
+
   SecureHeader *header = (SecureHeader *)packet.data();
+  std::string client_ip = it->second.ip_address;
 
   // SipHash Verification
   uint8_t tag[AUTH_TAG_SIZE];
@@ -346,8 +358,7 @@ bool TcpServer::processPacket(int client_fd, std::vector<uint8_t> &packet) {
       SST::SipHash::hash(key_vec, packet.data(), packet.size());
 
   if (std::memcmp(tag, calc_tag.data(), AUTH_TAG_SIZE) != 0) {
-    SST::Logger::log("[Security] MAC Auth failed for " +
-                     clients_[client_fd].ip_address);
+    SST::Logger::log("[Security] MAC Auth failed for " + client_ip);
     return false;
   }
   using namespace std::chrono;
@@ -358,23 +369,20 @@ bool TcpServer::processPacket(int client_fd, std::vector<uint8_t> &packet) {
 
   // 5. 미래 타임스탬프 거부 (1초 오차 허용) 및 만료 검사 (5초)
   if (pkt_ts > now_ms + 1000) {
-    SST::Logger::log("[Security] Future timestamp rejected from " +
-                     clients_[client_fd].ip_address);
+    SST::Logger::log("[Security] Future timestamp rejected from " + client_ip);
     return false;
   }
 
   uint64_t diff = now_ms - pkt_ts;
   if (diff > 5000) {
     SST::Logger::log(
-        "[Security] Replay Attack Detected (Timestamp Expired) from " +
-        clients_[client_fd].ip_address);
+        "[Security] Replay Attack Detected (Timestamp Expired) from " + client_ip);
     return false;
   }
 
   if (header->type == static_cast<uint8_t>(MessageType::REQ_Connect)) {
-    clients_[client_fd].authenticated = true;
-    SST::Logger::log("[Server] Client Authenticated: " +
-                     clients_[client_fd].ip_address);
+    it->second.authenticated = true;
+    SST::Logger::log("[Server] Client Authenticated: " + client_ip);
   }
   return true;
 }
@@ -415,7 +423,7 @@ void TcpServer::updateEpollEvents(int fd, uint32_t events) {
   ev.events = events;
   ev.data.fd = fd;
   if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_MOD, fd, &ev) == -1) {
-    // Log error
+    SST::Logger::log("[Error] Epoll ctl mod failed for fd " + std::to_string(fd));
   }
 }
 } // namespace SST
