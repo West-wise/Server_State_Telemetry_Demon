@@ -116,17 +116,14 @@ private:
 
   void processQueue() {
     while (running_) {
-      std::queue<std::string> local_queue; // 지역 큐 (빈 바구니)
+      std::queue<std::string> local_queue;
 
       {
-        std::unique_lock<std::mutex> lock(queue_mutex_); // 락 획득
+        std::unique_lock<std::mutex> lock(queue_mutex_);
         cv_.wait(lock, [this] { return !log_queue_.empty() || !running_; });
-
-        // 큐 통째로 스왑 (O(1) 시간복잡도로 찰나의 순간에 포인터만 바뀜)
         std::swap(log_queue_, local_queue);
-      } // <- 여기서 락이 즉시 풀림! 이제 다른 스레드들이 방해받지 않고 log() 호출 가능
+      }
 
-      // 락이 없는 자유로운 상태에서 파일 I/O 진행 (느려도 메인 스레드에 영향 없음)
       while (!local_queue.empty()) {
         std::string msg = local_queue.front();
         local_queue.pop();
@@ -137,9 +134,14 @@ private:
       }
     }
     // 스레드 종료 직전 남은 큐 강제 플러시
-    while (!log_queue_.empty()) {
+    std::queue<std::string> tmp_queue;
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      std::swap(log_queue_, tmp_queue);
+    }
+    while (!tmp_queue.empty()) {
       if (log_file_.is_open()) {
-        log_file_ << log_queue_.front() << '\n';
+        log_file_ << tmp_queue.front() << '\n';
       }
       log_queue_.pop();
     }
