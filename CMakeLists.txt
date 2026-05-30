@@ -27,6 +27,7 @@ set(SOURCES
     src/qrcodegen.cpp
     src/SystemReader.cpp
     src/PacketUtil.cpp
+    lib/monocypher.c
 )
 
 # 실행 파일 생성
