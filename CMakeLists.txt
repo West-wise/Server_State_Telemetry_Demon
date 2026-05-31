@@ -17,6 +17,7 @@ endif()
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/lib
+    ${CMAKE_SOURCE_DIR}/lib/libsodium/include
 )
 
 
@@ -27,12 +28,15 @@ set(SOURCES
     src/qrcodegen.cpp
     src/SystemReader.cpp
     src/PacketUtil.cpp
-    lib/monocypher.c
+    src/NoiseSession.cpp
 )
 
 # 실행 파일 생성
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# 스레드 라이브러리 링크
+# 라이브러리 링크(스레드, libsodium)
 find_package(Threads REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+target_link_libraries(${PROJECT_NAME} PRIVATE 
+    Threads::Threads
+    ${CMAKE_SOURCE_DIR}/lib/libsodium/lib/libsodium.a
+)
