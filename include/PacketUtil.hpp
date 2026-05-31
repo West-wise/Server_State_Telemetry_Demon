@@ -10,8 +10,7 @@ class PacketUtil {
 public:
   static std::vector<uint8_t> createPacket(uint8_t MsgType,
                                            uint32_t req_id,
-                                           const std::vector<uint8_t> &body,
-                                           const std::string &key);
+                                           const std::vector<uint8_t> &body);
 };
 } // namespace SST
 

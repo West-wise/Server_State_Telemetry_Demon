@@ -47,8 +47,7 @@ int main(int argc, char *argv[]) {
   // 설정 값 읽기
   int port = SST::Config::getInt("server", "port", 41924);
   std::string log_path(SST::Config::getString("log", "path", "logs/sstd.log"));
-  std::string secret_key(
-      SST::Config::getHashKey()); // getHashKey() 사용으로 최적화
+  std::string server_pubkey_hex = SST::Config::getServerPubKeyHex();
 
   if (show_qr) {
     std::string ext_host(SST::Config::getString("proxy", "host", ""));
@@ -66,8 +65,7 @@ int main(int argc, char *argv[]) {
 
     std::string server_name(
         SST::Config::getString("server", "name", "SST-NODE"));
-    SST::Utils::printTerminalQRCode(server_name, ext_host, ext_port,
-                                    secret_key);
+    SST::Utils::printTerminalQRCode(server_name, ext_host, ext_port, server_pubkey_hex);
     return 0;
   }
 

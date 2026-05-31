@@ -100,10 +100,10 @@ namespace SST::Utils {
 // 터미널에 QR 코드를 ANSI 특수문자 조합으로 그려주는 헬퍼 함수
 inline void printTerminalQRCode(const std::string &name, const std::string &ip,
                                 int port, const std::string &key) {
-  // 예: sst://server?name=SST-DEV-01&ip=192.168.0.10&port=9500&hash_key=111111...
+  // 예: sst://server?name=SST-DEV-01&ip=192.168.0.10&port=9500&pub_key=111111...
   std::string connectionString = "sst://server?name=" + name + "&ip=" + ip +
                                  "&port=" + std::to_string(port) +
-                                 "&hash_key=" + key;
+                                 "&pub_key=" + key;
   using qrcodegen::QrCode;
   QrCode qr = QrCode::encodeText(connectionString.c_str(), QrCode::Ecc::LOW);
   int border = 2;
