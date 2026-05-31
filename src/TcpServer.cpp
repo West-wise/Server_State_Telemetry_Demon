@@ -5,7 +5,6 @@
 #include "PacketUtil.hpp"
 #include "Protocol.hpp"
 #include "SystemReader.hpp"
-#include "siphash.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
@@ -18,36 +17,21 @@
 
 namespace SST {
 
-static std::string hexToBytes(const std::string &hex) {
-  std::string bytes;
-  for (unsigned int i = 0; i < hex.length(); i += 2) {
-    std::string byteString = hex.substr(i, 2);
-    char byte = (char)strtol(byteString.c_str(), NULL, 16);
-    bytes.push_back(byte);
-  }
-  return bytes;
-}
+// static std::string hexToBytes(const std::string &hex) {
+//   std::string bytes;
+//   for (unsigned int i = 0; i < hex.length(); i += 2) {
+//     std::string byteString = hex.substr(i, 2);
+//     char byte = (char)strtol(byteString.c_str(), NULL, 16);
+//     bytes.push_back(byte);
+//   }
+//   return bytes;
+// }
 
 TcpServer::TcpServer(int port)
-    : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1) {
-  // 7. Config에서 키 로드 (필수 검증)
-  std::string hex_key(SST::Config::getHashKey());
-  
-  if (hex_key.empty()) {
-    SST::Logger::log(
-        "[FATAL] No secure Hash key configured in config/sstd.ini!");
-    throw std::runtime_error(
-        "Insecure configuration - server refused to start");
-  } 
-
-  secret_key_ = hexToBytes(hex_key);
-  if (secret_key_.size() != 16) {
-    SST::Logger::log(
-        "[FATAL] Hash Key length must be 32 characters (16 bytes hex)");
-    throw std::runtime_error(
-        "Insecure configuration - server refused to start");
+    : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1){
+  if(!SST::Config::getServerKeypair(server_static_priv_, server_static_pub_)){
+    throw std::runtime_error("Failed to load server keypair");
   }
-
   initSocket();
   initEpoll();
   initTimer();
@@ -186,48 +170,37 @@ void TcpServer::run() {
   }
 }
 
-// [NEW] 모든 클라이언트에게 데이터 브로드캐스트
-void TcpServer::broadcastStats() {
-  if (clients_.empty())
-    return;
+// 연결된 모든 클라이언트에게 송신
+void TcpServer::broadcastStats(){
+  if(clients_.empty()) return;
 
-  // 최신 통계 조회
   SystemStats stats = SystemReader::getInstance().getStats();
-
-  // 브로드캐스트용 바디 생성
   std::vector<uint8_t> body(sizeof(SystemStats));
   std::memcpy(body.data(), &stats, sizeof(SystemStats));
 
-  // 1. 단일 패킷 버퍼 사전 할당 및 바디 복사 (재사용 목적)
-  std::vector<uint8_t> packet = PacketUtil::createPacket(
-      (uint8_t)SST::MessageType::RES_SystemStat, 0, body, secret_key_);
+  for(auto &[fd, client_info] : clients_){
+    if(!client_info.authenticated) continue; // 인증된 사용자에게만 송신
 
-  SecureHeader *header = reinterpret_cast<SecureHeader *>(packet.data());
-  std::vector<uint8_t> key_vec(secret_key_.begin(), secret_key_.end());
-
-  // 2. 각 클라이언트마다 헤더만 수정하여 브로드캐스트
-  for (auto &[fd, client_info] : clients_) {
-    if (!client_info.authenticated)
-      continue;
-
-    auto state_it = client_states_.find(fd);
-    if (state_it == client_states_.end())
-      continue; // 상태가 없으면 스킵
-
+    auto state_it =  client_states_.find(fd);
+    if(state_it == client_states_.end()) continue;
     ClientState &state = state_it->second;
 
-    // 헤더의 sequence 번호 수정
-    header->request_id = state.last_seq++;
+    std::vector<uint8_t> packet = PacketUtil::createPacket(
+        (uint8_t)SST::MessageType::RES_SystemStat, state.last_seq++, body);
 
-    // Auth Tag 초기화
-    std::memset(header->auth_tag, 0, AUTH_TAG_SIZE);
-    // SipHash 재계산
-    std::vector<uint8_t> calc_tag =
-        SST::SipHash::hash(key_vec, packet.data(), packet.size());
-    std::memcpy(header->auth_tag, calc_tag.data(), AUTH_TAG_SIZE);
+    std::vector<uint8_t> cyperText = state.noise.encrypt(packet.data(), packet.size());
+    if(cyperText.empty()) continue;
 
-    if (!state.write_buffer.write(packet.data(), packet.size()))
-      continue;
+    uint32_t ct_len = (uint32_t)cyperText.size();
+    uint8_t len_buf[4] = {
+      uint8_t(ct_len),
+      uint8_t(ct_len >> 8),
+      uint8_t(ct_len >> 16),
+      uint8_t(ct_len >> 24)
+    };
+
+    if(!state.write_buffer.write(len_buf, 4)) continue;
+    if(!state.write_buffer.write(cyperText.data(), cyperText.size())) continue;
     updateEpollEvents(fd, EPOLLIN | EPOLLOUT);
   }
 }
@@ -236,14 +209,19 @@ void TcpServer::acceptConnection() {
   struct sockaddr_in client_addr;
   socklen_t client_len = sizeof(client_addr);
 
-  int access_fd =
-      accept(server_fd_.get(), (struct sockaddr *)&client_addr, &client_len);
-  if (access_fd < 0)
+  int access_fd = accept(server_fd_.get(), (struct sockaddr *)&client_addr, &client_len);
+  if (access_fd < 0) return;
+
+  // HandShake
+  NoiseSession noise;
+  if(!noise.handshakeServer(access_fd, server_static_priv_, server_static_pub_)){
+    SST::Logger::log("[Security] Handshaek Failed - connection rejected");
+    close(access_fd);
     return;
+  }
 
   SST::FD client_fd(access_fd);
-  if (client_fd.get() == -1)
-    return;
+  if (client_fd.get() == -1) return;
 
   try {
     setNonBlocking(client_fd.get());
@@ -251,8 +229,7 @@ void TcpServer::acceptConnection() {
     event.events = EPOLLIN;
     event.data.fd = client_fd.get();
 
-    if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, client_fd.get(), &event) <
-        0) {
+    if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, client_fd.get(), &event) < 0) {
       SST::Logger::log("[Error] Epoll ctl add client fd failed");
       return;
     }
@@ -265,11 +242,11 @@ void TcpServer::acceptConnection() {
     client_states_.erase(fd_val);
 
     clients_.emplace(fd_val, ClientInfo(client_fd.get(), ip, false));
-    client_states_.emplace(fd_val, ClientState());
+    ClientState& state = client_states_.emplace(fd_val, ClientState()).first->second;
+    state.noise = std::move(noise); // Handshake 후 수립된 세션 저장
     client_fd.release(); // FD 제어권은 map으로 이동
 
-    SST::Logger::log("[Server] Connection from " + ip +
-                     " (fd: " + std::to_string(fd_val) + ")");
+    SST::Logger::log("[Server] HandShake OK - " + ip + "fd: " + std::to_string(fd_val) + ")");
   } catch (const std::exception &e) {
     SST::Logger::log(std::string("[Error] Accepting: ") + e.what());
   }
@@ -287,39 +264,32 @@ void TcpServer::handleClientData(int client_fd) {
 
   ClientState &state = client_states_[client_fd];
   if (!state.read_buffer.write(temp_buf, bytes_read)) {
-    SST::Logger::log("[Error] Buffer overflow for client fd " +
-                     std::to_string(client_fd));
+    SST::Logger::log("[Error] Buffer overflow for client fd " + std::to_string(client_fd));
     handleDisconnect(client_fd);
     return;
   }
 
-  while (true) {
-    if (state.read_buffer.size() < sizeof(SecureHeader))
-      break;
+  while(true){
+    if(state.read_buffer.size() < 4) break;
+    
+    uint8_t len_buf[4];
+    state.read_buffer.peek(len_buf,4);
+    uint32_t cyperText_len = len_buf[0] | len_buf[1] << 8 | (len_buf[2] << 16) | (len_buf[3] << 24);
 
-    SecureHeader header;
-    state.read_buffer.peek(reinterpret_cast<uint8_t *>(&header),
-                           sizeof(SecureHeader)); // 헤더만 읽어옴
+    if(state.read_buffer.size() < 4 + cyperText_len) break;
 
-    if (header.magic != MAGIC_NUMBER) {
-      SST::Logger::log("[Error] Invalid Magic from " +
-                       std::to_string(client_fd));
-      SST::Logger::log("[Error] Magic: " + std::to_string(header.magic));
+    state.read_buffer.consume(4);
+    std::vector<uint8_t> cyperText(cyperText_len);
+    state.read_buffer.read(cyperText.data(), cyperText_len);
+
+    std::vector<uint8_t> plainText;
+    if(!state.noise.decrypt(cyperText.data(), cyperText_len, plainText)){
+      SST::Logger::log("[Security] Decrypt failed for fd " + std::to_string(client_fd));
       handleDisconnect(client_fd);
       return;
     }
 
-    size_t total_packet_size = sizeof(SecureHeader) + header.body_len;
-    if (state.read_buffer.size() < total_packet_size) {
-      break;
-    }
-
-    std::vector<uint8_t> packet(total_packet_size);
-    state.read_buffer.read(packet.data(), total_packet_size);
-
-    if (!processPacket(client_fd, packet)) {
-      SST::Logger::log("[Error] Packet processing failed for fd " +
-                       std::to_string(client_fd));
+    if(!processPacket(client_fd, plainText)){
       handleDisconnect(client_fd);
       return;
     }
@@ -345,45 +315,32 @@ bool TcpServer::processPacket(int client_fd, std::vector<uint8_t> &packet) {
     return false;
   }
 
+  if(packet.size() < sizeof(SecureHeader)) return false;
   SecureHeader *header = (SecureHeader *)packet.data();
-  std::string client_ip = it->second.ip_address;
 
-  // SipHash Verification
-  uint8_t tag[AUTH_TAG_SIZE];
-  std::memcpy(tag, header->auth_tag, AUTH_TAG_SIZE);
-  std::memset(header->auth_tag, 0, AUTH_TAG_SIZE);
-
-  std::vector<uint8_t> key_vec(secret_key_.begin(), secret_key_.end());
-  std::vector<uint8_t> calc_tag =
-      SST::SipHash::hash(key_vec, packet.data(), packet.size());
-
-  if (std::memcmp(tag, calc_tag.data(), AUTH_TAG_SIZE) != 0) {
-    SST::Logger::log("[Security] MAC Auth failed for " + client_ip);
+  if(header->magic != MAGIC_NUMBER){
+    SST::Logger::log("[Error] Invalid magic from fd " + std::to_string(client_fd));
     return false;
   }
+  
   using namespace std::chrono;
-  uint64_t now_ms =
-      duration_cast<milliseconds>(system_clock::now().time_since_epoch())
-          .count();
+  uint64_t now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
   uint64_t pkt_ts = header->timestamp;
 
-  // 5. 미래 타임스탬프 거부 (1초 오차 허용) 및 만료 검사 (5초)
-  if (pkt_ts > now_ms + 1000) {
-    SST::Logger::log("[Security] Future timestamp rejected from " + client_ip);
+  if(pkt_ts > now_ms + 1000){
+    SST::Logger::log("[Security] Future timestamp rejected from " + it->second.ip_address);
+    return false;
+  }
+  if(now_ms - pkt_ts > 5000){
+    SST::Logger::log("[Security] Replay detected(timestamp expired) from " +  it->second.ip_address);
     return false;
   }
 
-  uint64_t diff = now_ms - pkt_ts;
-  if (diff > 5000) {
-    SST::Logger::log(
-        "[Security] Replay Attack Detected (Timestamp Expired) from " + client_ip);
-    return false;
-  }
-
-  if (header->type == static_cast<uint8_t>(MessageType::REQ_Connect)) {
+  if(header->type == (uint8_t)MessageType::REQ_Connect){
     it->second.authenticated = true;
-    SST::Logger::log("[Server] Client Authenticated: " + client_ip);
+    SST::Logger::log("[Server] Client authenticated: " + it->second.ip_address);
   }
+
   return true;
 }
 

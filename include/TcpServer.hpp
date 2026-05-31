@@ -3,6 +3,7 @@
 
 #include "CircularBuffer.hpp"
 #include "FileDescriptor.hpp"
+#include "NoiseSession.hpp"
 #include <arpa/inet.h>
 #include <atomic>
 #include <csignal>
@@ -25,6 +26,7 @@ struct ClientInfo {
 struct ClientState {
   SST::CircularBuffer read_buffer;
   SST::CircularBuffer write_buffer;
+  SST::NoiseSession   noise;
   uint32_t last_seq = 0;
 
   ClientState() : read_buffer(8192), write_buffer(8192) {}
@@ -47,12 +49,14 @@ public:
   void setStopFlag(volatile sig_atomic_t *flag) { stop_flag_ = flag; }
 
 private:
-  std::string secret_key_; // Config에서 로드된 비밀키
-
   int port_;          // 서버 포트
   SST::FD server_fd_; // 리스닝 소켓
   SST::FD epoll_fd_;  // epoll 인스턴스
   SST::FD timer_fd_;  // 타이머 파일 디스크립터
+
+  uint8_t server_static_priv_[32] = {};
+  uint8_t server_static_pub_[32] = {};
+
   std::atomic<bool> is_running_{false};
   volatile sig_atomic_t *stop_flag_ = nullptr;
 
@@ -63,7 +67,7 @@ private:
   // key: 소켓 파일 디스크립터, value: 클라이언트 정보
   std::unordered_map<int, ClientInfo> clients_;
   // 클라이언트 상태 관리 map
-  // key: 소켓 파일 디스크립터, value: 클라이언트 상태
+  // key: 소켓 파일 디스크립터, value: 클라이언트 상태    
   std::unordered_map<int, ClientState> client_states_;
 
   void initSocket();       // 소켓 생성 및 초기화
