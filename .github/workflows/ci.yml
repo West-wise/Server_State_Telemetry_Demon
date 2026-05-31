@@ -11,13 +11,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Respository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+
+      - name: Install Python Dependencies
+        run: pip install cryptography
 
       - name: Build Project
         run: |
@@ -28,13 +31,11 @@ jobs:
 
       - name: Run Server and Test
         env:
-          SSTD_HOST: ${{ secrets.HOST }}
-          SSTD_PORT: ${{ secrets.PORT }}
-          HASH_KEY: ${{ secrets.HASH_KEY }}
-
+          SSTD_HOST: ${{ secrets.HOST || '127.0.0.1' }}
+          SSTD_PORT: ${{ secrets.PORT || '41924' }}
         run: |
           cd build
-          ./SST_Demon & 
+          ./SST_Demon &
           SERVER_PID=$!
           cd ..
           sleep 2
