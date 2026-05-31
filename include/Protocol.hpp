@@ -1,13 +1,11 @@
 #ifndef PROTOCOL_HPP
 #define PROTOCOL_HPP
-
 #include <arpa/inet.h>
 #include <cstdint>
 #include <string>
 
 namespace SST {
 constexpr uint32_t MAGIC_NUMBER = 0x53535444; // SSTD
-constexpr int AUTH_TAG_SIZE = 16;
 
 enum class MessageType : uint8_t {
   REQ_Connect = 0x01,    // 연결요청
@@ -22,9 +20,8 @@ struct SecureHeader {
   uint8_t type;                    // MessageType
   uint16_t client_id;              // 1:N 식별자
   uint32_t request_id;             // 중복 방지 (Sequence)
-  uint64_t timestamp;              // Replay 방지 (Unix MS)
+  uint64_t timestamp;              // Replay 방지 (Unix MS) 
   uint32_t body_len;               // Payload 길이
-  uint8_t auth_tag[AUTH_TAG_SIZE]; // SipHash-2-4 (128-bit)
 } __attribute__((packed));
 
 struct netInfo {
@@ -76,7 +73,7 @@ struct SystemStats {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(SecureHeader) == 40, "SecureHeader size mismatch");
+static_assert(sizeof(SecureHeader) == 24, "SecureHeader size mismatch");
 static_assert(sizeof(SystemStats) == 134, "SystemStats size mismatch");
 } // namespace SST
 
