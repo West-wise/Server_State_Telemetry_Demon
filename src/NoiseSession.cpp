@@ -143,63 +143,59 @@ bool NoiseSession::sendAll(int fd, const uint8_t* buf, size_t len) {
 
 // ─── Handshake ───────────────────────────────────────────────────────────────
 
-// Noise_XX server (responder) side:
-//   <- e          (recv)
-//   -> e,ee,s,es  (send)
-//   <- s,se       (recv)
-bool NoiseSession::handshakeServer(int fd,
-                                   const uint8_t s_priv[KEY_SIZE],
-                                   const uint8_t s_pub[KEY_SIZE]) {
+// Non-blocking server handshake: phase 1
+// Consumes MSG1 (32 bytes), builds MSG2 (80 bytes) into msg2_out.
+// Stores hs_se_priv_ and hs_e_pub_c_ for phase 2.
+bool NoiseSession::hsProcessMsg1(const uint8_t msg1[KEY_SIZE],
+                                    uint8_t msg2_out[KEY_SIZE * 2 + MAC_SIZE],
+                                    const uint8_t s_priv[KEY_SIZE],
+                                  const uint8_t s_pub[KEY_SIZE]) {
     initializeSymmetric();
 
-    // ── Message 1: recv e ─────────────────────────────────────────────────
-    uint8_t e_pub_c[KEY_SIZE];
-    if (!recvAll(fd, e_pub_c, KEY_SIZE)) return false;
-    mixHash(e_pub_c, KEY_SIZE);
+    memcpy(hs_e_pub_c_, msg1, KEY_SIZE);
+    mixHash(hs_e_pub_c_, KEY_SIZE);
 
-    // ── Message 2: send e, ee, s, es ──────────────────────────────────────
-    uint8_t se_priv[KEY_SIZE], se_pub[KEY_SIZE];
-    crypto_box_keypair(se_pub, se_priv);
+    uint8_t se_pub[KEY_SIZE];
+    crypto_box_keypair(se_pub, hs_se_priv_);
     mixHash(se_pub, KEY_SIZE);
 
-    // ee = DH(se_priv, e_pub_c)
     uint8_t dh_ee[KEY_SIZE];
-    if (crypto_scalarmult(dh_ee, se_priv, e_pub_c) != 0) return false;
+    if (crypto_scalarmult(dh_ee, hs_se_priv_, hs_e_pub_c_) != 0) return false;
     mixKey(dh_ee);
+    sodium_memzero(dh_ee, KEY_SIZE);
 
-    // Encrypt s_pub → encrypted_s (KEY_SIZE + MAC_SIZE bytes)
     uint8_t encrypted_s[KEY_SIZE + MAC_SIZE];
     if (!encryptAndHash(s_pub, KEY_SIZE, encrypted_s)) return false;
 
-    // es = DH(s_priv, e_pub_c)
     uint8_t dh_es[KEY_SIZE];
-    if (crypto_scalarmult(dh_es, s_priv, e_pub_c) != 0) return false;
+    if (crypto_scalarmult(dh_es, s_priv, hs_e_pub_c_) != 0) return false;
     mixKey(dh_es);
+    sodium_memzero(dh_es, KEY_SIZE);
 
-    // Send: se_pub || encrypted_s
-    uint8_t msg2[KEY_SIZE + KEY_SIZE + MAC_SIZE];
-    memcpy(msg2,           se_pub,     KEY_SIZE);
-    memcpy(msg2 + KEY_SIZE, encrypted_s, KEY_SIZE + MAC_SIZE);
-    if (!sendAll(fd, msg2, sizeof(msg2))) return false;
+    memcpy(msg2_out,            se_pub,      KEY_SIZE);
+    memcpy(msg2_out + KEY_SIZE, encrypted_s, KEY_SIZE + MAC_SIZE);
+    return true;
+}
 
-    // ── Message 3: recv s, se ─────────────────────────────────────────────
-    uint8_t encrypted_c[KEY_SIZE + MAC_SIZE];
-    if (!recvAll(fd, encrypted_c, sizeof(encrypted_c))) return false;
-
+// Non-blocking server handshake: phase 2
+// Consumes MSG3 (48 bytes), completes handshake, sets ready_=true.
+// Zeroes intermediate ephemeral state.
+bool NoiseSession::hsProcessMsg3(const uint8_t msg3[KEY_SIZE + MAC_SIZE]) {
     uint8_t c_pub[KEY_SIZE];
-    if (!decryptAndHash(encrypted_c, sizeof(encrypted_c), c_pub)) return false;
+    if (!decryptAndHash(msg3, KEY_SIZE + MAC_SIZE, c_pub)) return false;
 
-    // se = DH(se_priv, c_pub)
     uint8_t dh_se[KEY_SIZE];
-    if (crypto_scalarmult(dh_se, se_priv, c_pub) != 0) return false;
+    if (crypto_scalarmult(dh_se, hs_se_priv_, c_pub) != 0) return false;
     mixKey(dh_se);
+    sodium_memzero(dh_se, KEY_SIZE);
 
-    split(false); // responder
+    sodium_memzero(hs_se_priv_, KEY_SIZE);
+    sodium_memzero(hs_e_pub_c_, KEY_SIZE);
+
+    split(false);
     send_nonce_ = 0;
     recv_nonce_ = 0;
     ready_ = true;
-
-    sodium_memzero(se_priv, KEY_SIZE);
     return true;
 }
 

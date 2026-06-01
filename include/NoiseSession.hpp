@@ -8,18 +8,23 @@
 namespace SST {
 
 // Noise_XX_25519_ChaChaPoly_BLAKE2b
-// libsodium primitives only, no external Noise library.
+// 외부 Noise_XX라이브러리 같은 경우에는 CMake를 지원하지 않아 libsodium에서 제공하는 프리미티브 로구현
 class NoiseSession {
 public:
     static constexpr size_t KEY_SIZE   = 32;
     static constexpr size_t MAC_SIZE   = 16;
     static constexpr size_t NONCE_SIZE = 12; // IETF ChaCha20-Poly1305
 
-    // Server (responder) handshake — blocking read/write on fd.
-    // s_priv/s_pub: server static X25519 keypair.
-    bool handshakeServer(int fd,
-                         const uint8_t s_priv[KEY_SIZE],
-                         const uint8_t s_pub[KEY_SIZE]);
+    // Non-blocking server handshake: phase 1
+    // MSG1 (32 bytes) → builds MSG2 (80 bytes) into msg2_out.
+    bool hsProcessMsg1(const uint8_t msg1[KEY_SIZE],
+                       uint8_t msg2_out[KEY_SIZE * 2 + MAC_SIZE],
+                       const uint8_t s_priv[KEY_SIZE],
+                       const uint8_t s_pub[KEY_SIZE]);
+
+    // Non-blocking server handshake: phase 2
+    // MSG3 (48 bytes) → completes handshake, sets ready_=true.
+    bool hsProcessMsg3(const uint8_t msg3[KEY_SIZE + MAC_SIZE]);
 
     // Client (initiator) handshake — blocking read/write on fd.
     // server_pub: server static public key (from QR code).
@@ -45,6 +50,10 @@ private:
     uint8_t  ck_[KEY_SIZE] = {}; // chaining key
     uint8_t  k_[KEY_SIZE]  = {}; // current cipher key
     uint64_t n_ = 0;             // handshake nonce counter
+
+    // Ephemeral state between hsProcessMsg1 and hsProcessMsg3
+    uint8_t hs_se_priv_[KEY_SIZE] = {}; // server ephemeral private key
+    uint8_t hs_e_pub_c_[KEY_SIZE] = {}; // client ephemeral public key
 
     void initializeSymmetric();
     void mixHash(const uint8_t* data, size_t len);
