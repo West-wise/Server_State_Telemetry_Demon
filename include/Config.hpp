@@ -60,9 +60,9 @@ public:
   }
 
   // string값 가져오기
-  static std::string_view getString(const std::string &section,
+  static std::string getString(const std::string &section,
                                     const std::string &key,
-                                    std::string_view default_value = "") {
+                                    std::string default_value = "") {
     if (config_data_.empty())
       return default_value;
 
@@ -82,7 +82,7 @@ public:
     if (config_data_.empty())
       return default_value;
 
-    std::string_view value = getString(section, key);
+    std::string value = getString(section, key);
     if (value.empty())
       return default_value;
 

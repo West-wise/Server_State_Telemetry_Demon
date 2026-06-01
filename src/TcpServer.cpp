@@ -7,6 +7,7 @@
 #include "SystemReader.hpp"
 #include <arpa/inet.h>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -154,8 +155,10 @@ void TcpServer::run() {
         uint64_t expirations;
         ssize_t n = read(cur_fd, &expirations,
                          sizeof(expirations)); // 타이머 읽어서 클리어
-        if (n > 0)
+        if (n > 0) {
           broadcastStats();
+          evictStalledHandshakes();
+        }
       } else {
         if (ev & EPOLLIN) {
           handleClientData(cur_fd); // 클라이언트 데이터 처리
@@ -188,10 +191,10 @@ void TcpServer::broadcastStats(){
     std::vector<uint8_t> packet = PacketUtil::createPacket(
         (uint8_t)SST::MessageType::RES_SystemStat, state.last_seq++, body);
 
-    std::vector<uint8_t> cyperText = state.noise.encrypt(packet.data(), packet.size());
-    if(cyperText.empty()) continue;
+    std::vector<uint8_t> cipherText = state.noise.encrypt(packet.data(), packet.size());
+    if(cipherText.empty()) continue;
 
-    uint32_t ct_len = (uint32_t)cyperText.size();
+    uint32_t ct_len = (uint32_t)cipherText.size();
     uint8_t len_buf[4] = {
       uint8_t(ct_len),
       uint8_t(ct_len >> 8),
@@ -200,7 +203,7 @@ void TcpServer::broadcastStats(){
     };
 
     if(!state.write_buffer.write(len_buf, 4)) continue;
-    if(!state.write_buffer.write(cyperText.data(), cyperText.size())) continue;
+    if(!state.write_buffer.write(cipherText.data(), cipherText.size())) continue;
     updateEpollEvents(fd, EPOLLIN | EPOLLOUT);
   }
 }
@@ -209,22 +212,13 @@ void TcpServer::acceptConnection() {
   struct sockaddr_in client_addr;
   socklen_t client_len = sizeof(client_addr);
 
-  int access_fd = accept(server_fd_.get(), (struct sockaddr *)&client_addr, &client_len);
+  // 기존 : accept + fcntl(GET) + fcntl(SET) -> 3번의 시스템 콜
+  // accept4 : 원자적으로 논블로킹 설정, 리눅스 전용(kernel 2.6.28 이상)
+  int access_fd = accept4(server_fd_.get(), (struct sockaddr *)&client_addr, &client_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
   if (access_fd < 0) return;
 
-  // HandShake
-  NoiseSession noise;
-  if(!noise.handshakeServer(access_fd, server_static_priv_, server_static_pub_)){
-    SST::Logger::log("[Security] Handshaek Failed - connection rejected");
-    close(access_fd);
-    return;
-  }
-
-  SST::FD client_fd(access_fd);
-  if (client_fd.get() == -1) return;
-
   try {
-    setNonBlocking(client_fd.get());
+    SST::FD client_fd(access_fd);
     struct epoll_event event;
     event.events = EPOLLIN;
     event.data.fd = client_fd.get();
@@ -242,13 +236,75 @@ void TcpServer::acceptConnection() {
     client_states_.erase(fd_val);
 
     clients_.emplace(fd_val, ClientInfo(client_fd.get(), ip, false));
-    ClientState& state = client_states_.emplace(fd_val, ClientState()).first->second;
-    state.noise = std::move(noise); // Handshake 후 수립된 세션 저장
+    client_states_.emplace(fd_val, ClientState()); // phase가 WAIT_MSG1로 자동설정됨
     client_fd.release(); // FD 제어권은 map으로 이동
 
-    SST::Logger::log("[Server] HandShake OK - " + ip + "fd: " + std::to_string(fd_val) + ")");
+    SST::Logger::log("[Server] Client connected - " + ip + " (fd: " + std::to_string(fd_val) + ")");
   } catch (const std::exception &e) {
+
     SST::Logger::log(std::string("[Error] Accepting: ") + e.what());
+  }
+}
+
+void TcpServer::advanceHandshake(int client_fd) {
+  auto it = client_states_.find(client_fd);
+  if (it == client_states_.end()) return;
+  ClientState &state = it->second;
+
+  if (state.phase == HandshakePhase::WAIT_MSG1) {
+    static constexpr size_t MSG1_SIZE = SST::NoiseSession::KEY_SIZE;
+    if (state.read_buffer.size() < MSG1_SIZE) return;
+
+    uint8_t msg1[MSG1_SIZE];
+    state.read_buffer.read(msg1, MSG1_SIZE);
+
+    static constexpr size_t MSG2_SIZE = SST::NoiseSession::KEY_SIZE * 2 + SST::NoiseSession::MAC_SIZE;
+    uint8_t msg2[MSG2_SIZE];
+    if (!state.noise.hsProcessMsg1(msg1, msg2, server_static_priv_, server_static_pub_)) {
+      SST::Logger::log("[Security] Handshake msg1 failed fd " + std::to_string(client_fd));
+      handleDisconnect(client_fd);
+      return;
+    }
+
+    if (!state.write_buffer.write(msg2, MSG2_SIZE)) {
+      handleDisconnect(client_fd);
+      return;
+    }
+    updateEpollEvents(client_fd, EPOLLIN | EPOLLOUT);
+    state.phase = HandshakePhase::WAIT_MSG3;
+  } else if (state.phase == HandshakePhase::WAIT_MSG3) {
+    static constexpr size_t MSG3_SIZE = SST::NoiseSession::KEY_SIZE + SST::NoiseSession::MAC_SIZE;
+    if (state.read_buffer.size() < MSG3_SIZE) return;
+
+    uint8_t msg3[MSG3_SIZE];
+    state.read_buffer.read(msg3, MSG3_SIZE);
+
+    if (!state.noise.hsProcessMsg3(msg3)) {
+      SST::Logger::log("[Security] Handshake msg3 failed fd " + std::to_string(client_fd));
+      handleDisconnect(client_fd);
+      return;
+    }
+
+    state.phase = HandshakePhase::DONE;
+    clients_[client_fd].authenticated = true;
+    SST::Logger::log("[Security] Handshake complete fd " + std::to_string(client_fd));
+  }
+}
+
+void TcpServer::evictStalledHandshakes() {
+  auto now = std::chrono::steady_clock::now();
+  for (auto it = client_states_.begin(); it != client_states_.end(); ) {
+    if (it->second.phase != HandshakePhase::DONE) {
+      auto elapsed = now - it->second.hs_start;
+      if (elapsed > std::chrono::seconds(10)) {
+        int fd = it->first;
+        ++it;
+        SST::Logger::log("[Security] Handshake timeout evict fd " + std::to_string(fd));
+        handleDisconnect(fd);
+        continue;
+      }
+    }
+    ++it;
   }
 }
 
@@ -262,28 +318,40 @@ void TcpServer::handleClientData(int client_fd) {
     return;
   }
 
-  ClientState &state = client_states_[client_fd];
+  auto it = client_states_.find(client_fd);
+  if(it == client_states_.end()) {
+    handleDisconnect(client_fd);
+    return;
+  }
+  ClientState &state = it->second;
+
   if (!state.read_buffer.write(temp_buf, bytes_read)) {
     SST::Logger::log("[Error] Buffer overflow for client fd " + std::to_string(client_fd));
     handleDisconnect(client_fd);
     return;
   }
 
+  if (state.phase != HandshakePhase::DONE) {
+    advanceHandshake(client_fd);
+    return;
+  }
+
+  // Transport phase: decrypt and dispatch packets
   while(true){
     if(state.read_buffer.size() < 4) break;
-    
+
     uint8_t len_buf[4];
     state.read_buffer.peek(len_buf,4);
-    uint32_t cyperText_len = len_buf[0] | len_buf[1] << 8 | (len_buf[2] << 16) | (len_buf[3] << 24);
+    uint32_t cipherText_len = len_buf[0] | len_buf[1] << 8 | (len_buf[2] << 16) | (len_buf[3] << 24);
 
-    if(state.read_buffer.size() < 4 + cyperText_len) break;
+    if(state.read_buffer.size() < 4 + cipherText_len) break;
 
     state.read_buffer.consume(4);
-    std::vector<uint8_t> cyperText(cyperText_len);
-    state.read_buffer.read(cyperText.data(), cyperText_len);
+    std::vector<uint8_t> cipherText(cipherText_len);
+    state.read_buffer.read(cipherText.data(), cipherText_len);
 
     std::vector<uint8_t> plainText;
-    if(!state.noise.decrypt(cyperText.data(), cyperText_len, plainText)){
+    if(!state.noise.decrypt(cipherText.data(), cipherText_len, plainText)){
       SST::Logger::log("[Security] Decrypt failed for fd " + std::to_string(client_fd));
       handleDisconnect(client_fd);
       return;

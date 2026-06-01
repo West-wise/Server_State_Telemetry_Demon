@@ -8,6 +8,7 @@
 #include <atomic>
 #include <csignal>
 #include <cstdint>
+#include <chrono>
 #include <unordered_map>
 #include <string>
 #include <sys/epoll.h>
@@ -15,6 +16,9 @@
 #include <unistd.h>
 
 namespace SST {
+
+enum class HandshakePhase { WAIT_MSG1, WAIT_MSG3, DONE };
+
 struct ClientInfo {
   SST::FD socket_fd;
   std::string ip_address;
@@ -27,7 +31,10 @@ struct ClientState {
   SST::CircularBuffer read_buffer;
   SST::CircularBuffer write_buffer;
   SST::NoiseSession   noise;
-  uint32_t last_seq = 0;
+  uint32_t            last_seq = 0;
+
+  HandshakePhase      phase = HandshakePhase::WAIT_MSG1;
+  std::chrono::steady_clock::time_point hs_start = std::chrono::steady_clock::now();
 
   ClientState() : read_buffer(8192), write_buffer(8192) {}
 };
@@ -75,6 +82,8 @@ private:
   void initTimer();        // 타이머 초기화
   void broadcastStats();   // 모든 클라이언트에게 데이터 브로드캐스트
   void acceptConnection(); // 새 클라이언트 접속 처리
+  void advanceHandshake(int client_fd);    // 핸드셰이크 단계 진행
+  void evictStalledHandshakes();           // 타임아웃된 핸드셰이크 클라이언트 해제
   void handleClientData(int client_fd); // 클라이언트 데이터 처리
   void handleDisconnect(int client_fd); // 연결 종료 처리
   void setNonBlocking(int fd);          // 논블로킹모드 설정
