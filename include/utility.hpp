@@ -3,6 +3,7 @@
 #include "qrcodegen.hpp"
 #include <charconv>
 #include <cstring>
+#include <ctime>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -103,7 +104,8 @@ inline void printTerminalQRCode(const std::string &name, const std::string &ip,
   // 예: sst://server?name=SST-DEV-01&ip=192.168.0.10&port=9500&pub_key=111111...
   std::string connectionString = "sst://server?name=" + name + "&ip=" + ip +
                                  "&port=" + std::to_string(port) +
-                                 "&pub_key=" + key;
+                                 "&pub_key=" + key +
+                                 "&ts=" + std::to_string(std::time(nullptr));
   using qrcodegen::QrCode;
   QrCode qr = QrCode::encodeText(connectionString.c_str(), QrCode::Ecc::LOW);
   int border = 2;
