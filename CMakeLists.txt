@@ -13,6 +13,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic -Werror -O2)
 endif()
 
+# 아키텍쳐별 libsodium 라이브러리 설정
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    set(SODIUM_LIB_PATH ${CMAKE_SOURCE_DIR}/lib/libsodium/aarch64/lib/libsodium.a)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64")
+    set(SODIUM_LIB_PATH ${CMAKE_SOURCE_DIR}/lib/libsodium/x86_64/lib/libsodium.a)
+else()
+    message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
+message(STATUS "Architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+message(STATUS "libsodium path: ${SODIUM_LIB_PATH}")
+
 # 포함 디렉토리 설정
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
@@ -38,5 +50,5 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 find_package(Threads REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     Threads::Threads
-    ${CMAKE_SOURCE_DIR}/lib/libsodium/lib/libsodium.a
+    ${SODIUM_LIB_PATH}
 )
