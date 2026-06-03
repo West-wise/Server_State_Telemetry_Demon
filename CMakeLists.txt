@@ -10,7 +10,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 컴파일러별 경고 옵션 설정
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror -O2)
+    add_compile_options(-Wall -Wextra -Wpedantic -Werror -Os)
 endif()
 
 # 아키텍쳐별 libsodium 라이브러리 설정
@@ -45,6 +45,12 @@ set(SOURCES
 
 # 실행 파일 생성
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_link_options(${PROJECT_NAME} PRIVATE
+    -Wl,--gc-sections
+    -s
+)
+set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 # 라이브러리 링크(스레드, libsodium)
 find_package(Threads REQUIRED)
