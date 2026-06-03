@@ -132,6 +132,7 @@ private:
           log_file_ << msg << '\n';
         }
       }
+      log_file_.flush();
     }
     // 스레드 종료 직전 남은 큐 강제 플러시
     std::queue<std::string> tmp_queue;

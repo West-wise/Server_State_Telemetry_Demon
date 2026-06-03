@@ -148,7 +148,7 @@ assert STATS_SIZE == 134, f"Stats size mismatch: {STATS_SIZE}"
 
 # ─── 클라이언트 ───────────────────────────────────────────────────────────────
 class SSTDClient:
-    def __init__(self, config_path='../config/sstd.ini'):
+    def __init__(self, config_path='./config/sstd.ini'):
         self.config = configparser.ConfigParser()
         if not os.path.exists(config_path):
             base_dir = os.path.dirname(os.path.abspath(__file__))
