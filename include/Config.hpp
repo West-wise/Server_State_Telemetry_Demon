@@ -13,7 +13,7 @@
 #include <vector>
 
 // 이 상대경로 문제는 좀더 고민해볼 것...
-constexpr std::string_view CONFIG_FILE_PATH = "../config/sstd.ini";
+constexpr std::string_view CONFIG_FILE_PATH = "./config/sstd.ini";
 namespace SST {
 class Config {
 public:
@@ -124,8 +124,7 @@ private:
   static inline uint8_t static_pub_[32]  = {};
   static inline bool    key_loaded_      = false;
 
-  constexpr static const char *key_path =
-      "sstd.key"; // 추후 /etc/sstd/sstd.key로 변경
+  constexpr static const char *key_path = "/etc/sstd/sstd.key";
 
   static bool checkKeyFile() {
     std::ifstream file(key_path, std::ios::binary);
