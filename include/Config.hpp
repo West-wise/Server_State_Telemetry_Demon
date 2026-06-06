@@ -13,7 +13,7 @@
 #include <vector>
 
 // 이 상대경로 문제는 좀더 고민해볼 것...
-constexpr std::string_view CONFIG_FILE_PATH = "./config/sstd.ini";
+constexpr std::string_view CONFIG_FILE_PATH = "/etc/sstd/sstd.ini";
 namespace SST {
 class Config {
 public:
