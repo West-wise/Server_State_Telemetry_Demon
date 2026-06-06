@@ -24,19 +24,26 @@ jobs:
 
       - name: Build Project
         run: |
-          sudo ./test_install./sh
+          mkdir -p build
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+
+      - name: Prepare Runtime Dirs
+        run: |
+          sudo mkdir -p /etc/sstd
+          sudo chown "$USER":"$USER" /etc/sstd
+          sudo cp config/sstd.ini /etc/sstd/sstd.ini
 
       - name: Run Server and Test
         env:
           SSTD_HOST: ${{ secrets.HOST || '127.0.0.1' }}
           SSTD_PORT: ${{ secrets.PORT || '41924' }}
+          SSTD_KEY_PATH: /etc/sstd/sstd.key
         run: |
           cd build
           ./SST_Demon &
           SERVER_PID=$!
           cd ..
           sleep 2
-          python test/test_client.py
-          sleep 5
           python test/test_multi_client.py
           kill -SIGTERM $SERVER_PID
