@@ -24,10 +24,7 @@ jobs:
 
       - name: Build Project
         run: |
-          mkdir build
-          cd build
-          cmake ..
-          make
+          sudo ./test_install./sh
 
       - name: Run Server and Test
         env:
@@ -39,5 +36,7 @@ jobs:
           SERVER_PID=$!
           cd ..
           sleep 2
+          python test/test_client.py
+          sleep 5
           python test/test_multi_client.py
           kill -SIGTERM $SERVER_PID
