@@ -2,10 +2,10 @@
 
 ## 1. 프로젝트 개요
 **SSTD**는 Linux 기반의 경량 **시스템 상태 모니터링 데몬**입니다. 
-외부 의존성(Boost, OpenSSL 등) 없이 **Pure C++17**과 **Linux System Call** (`epoll`, `socket`, `procfs`)만을 사용하여 구현되어, 임베디드 및 차량용 IVI 시스템과 같이 리소스가 제한적인 환경에 최적화되어 있습니다.
+정적 링크(Static Linking)된 `libsodium` 외에는 외부 공유 라이브러리 의존성(Boost, OpenSSL 등)이 없으며, **Pure C++17**과 **Linux System Call** (`epoll`, `socket`, `procfs`)만을 사용하여 구현되어 리소스가 제한적인 환경에 최적화되어 있습니다.
 
 ## 2. 핵심 철학 (Core Philosophy)
-1.  **Zero Dependency**: 오직 C++ 표준 라이브러리와 필수 POSIX API만 사용합니다. 이는 배포를 단순화하고 바이너리 크기를 줄입니다.
+1.  **Zero Runtime Dependency (런타임 의존성 제로)**: 런타임 시 외부 공유 라이브러리 설치가 필요 없어 단일 바이너리만으로 단순하게 사용할 수 있습니다.
 2.  **Performance (성능 최우선)**:
     *   **I/O Multiplexing**: `epoll` (Level Triggered) 기반의 비동기 네트워크 처리를 수행합니다.
     *   **Circular Buffer**: 수신/송신 버퍼에 링 버퍼를 도입하여 메모리 복사 및 재할당 비용(`O(N)`)을 제거했습니다.
@@ -37,11 +37,12 @@
 2.  **처리 (Processing)**: Header Parsing -> HMAC Verification -> Command Logic (`SystemReader` 조회) -> Response Generation
 3.  **송신 (Outbound)**: `CircularBuffer` -> `epoll` (EPOLLOUT) -> `write` -> Client
 
-## 4. 보안 (Security)
-*   **패킷 포맷**: 42 Byte Packed Header (Little Endian).
-*   **무결성 (Integrity)**: HMAC-SHA256 (16바이트 Truncated)을 사용하여 패킷 위/변조를 방지합니다.
-*   **재전송 방지 (Replay Protection)**: 헤더에 `timestamp`와 `request_id` 필드를 포함합니다. (서버 측의 유효성 검증 로직은 다음 단계 구현 예정)
-*   **자격 증명**: 사전 공유된 비밀 키(Shared Secret Key)를 사용합니다.
+## 4. 보안 (Security - SSTD Protocol v2.0)
+*   **보안 계층**: Noise_XX_25519_ChaChaPoly_BLAKE2b 프로토콜을 통한 상호 인증 및 전방 비밀성(Forward Secrecy) 보장.
+*   **패킷 포맷**: 24 Byte Secure Header (Little Endian) + ChaCha20-Poly1305 암호화 Body.
+*   **기밀성 및 무결성 (Integrity)**: 모든 패킷은 ChaCha20-Poly1305로 암호화되며 Poly1305 MAC을 통해 무결성을 검증합니다.
+*   **재전송 방지 (Replay Protection)**: 헤더에 `timestamp`와 `request_id` 필드를 포함하며, 시간 만료 패킷은 서버에서 자동 검증 및 차단됩니다.
+*   **자격 증명**: 서버 최초 실행 시 자동 생성된 X25519 정적 키를 사용하며, 클라이언트는 QR 코드를 통해 서버의 공개키를 핀닝(Pinning)합니다.
 
 ## 5. 성능 개선 사항
 *   **Circular Buffer 도입**: 기존 `std::vector::insert/erase` 방식을 교체했습니다.
@@ -55,7 +56,7 @@ SSTD/
 ├── config/         # 설정 파일 (sstd.ini)
 ├── docs/           # 문서 (프로젝트 설명서 등)
 ├── include/        # 헤더 파일 (TcpServer, SystemReader 등)
-├── lib/            # 외부 라이브러리 소스 (sha256 등)
+├── lib/            # 외부 라이브러리 소스 (libsodium 등)
 ├── src/            # 구현 소스 파일
 ├── test/           # Python 테스트 스크립트
 └── main.cpp        # 프로그램 진입점

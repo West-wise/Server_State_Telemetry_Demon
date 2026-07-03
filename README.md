@@ -1,10 +1,8 @@
 # Server State Telemetry Daemon (SSTD)
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue) ![Language](https://img.shields.io/badge/language-C%2B%2B17-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-2.0.0-blue) ![Language](https://img.shields.io/badge/language-C%2B%2B17-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 C++17로 작성된 경량 시스템 상태 모니터링 데몬입니다.
-
-[🇺🇸 English README](./README_EN.md)
 
 ---
 
@@ -18,10 +16,21 @@ cmake .. && make
 
 ### 실행
 ```bash
-./sstd                  # 기본 설정 파일로 실행 (../config/sstd.ini)
+./sstd                  # 기본 설정 파일로 실행 (/etc/sstd/sstd.ini)
 ./sstd [config_path]    # 커스텀 설정 파일 지정 실행
 ./sstd --show-qr        # 서버 접속용 QR 출력 후 종료
 ```
+
+---
+
+## 🔐 보안
+
+SSTD는 **Noise_XX_25519_ChaChaPoly_BLAKE2b** 프로토콜로 모든 통신을 보호합니다.
+
+- 최초 실행 시 X25519 키쌍을 자동 생성하여 `/etc/sstd/sstd.key`에 저장합니다 (권한: `0600`).
+- 클라이언트는 QR 코드에 포함된 서버 공개키(`pub_key`)로 서버 신원을 검증합니다.
+- 세션마다 임시 키를 사용하여 전방 비밀성(Forward Secrecy)을 보장합니다.
+- 키 교체: `/etc/sstd/sstd.key` 삭제 후 데몬 재시작.
 
 ---
 
@@ -32,13 +41,25 @@ cmake .. && make
 port = 41924
 
 [log]
-path = ../test/test.log
+path = logs/sstd.log
 
 [proxy]
 host = sstd.test.site
 port = 443
-interface = "test100"
+interface = "eth0"
 ```
+
+---
+
+## 📡 연결 QR 코드
+
+`--show-qr` 실행 시 다음 형식의 URI가 QR 코드로 출력됩니다:
+
+```
+sst://server?name=<서버이름>&ip=<IP>&port=<포트>&pub_key=<64자리_공개키_hex>&ts=<Unix_타임스탬프>
+```
+
+모바일 클라이언트는 QR 코드를 스캔하여 서버 공개키를 핀닝하고 자동 연결합니다.
 
 ---
 
