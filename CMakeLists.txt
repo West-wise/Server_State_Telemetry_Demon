@@ -16,7 +16,7 @@ endif()
 # 아키텍쳐별 libsodium 라이브러리 설정
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     set(SODIUM_LIB_PATH ${CMAKE_SOURCE_DIR}/lib/libsodium/aarch64/lib/libsodium.a)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
     set(SODIUM_LIB_PATH ${CMAKE_SOURCE_DIR}/lib/libsodium/x86_64/lib/libsodium.a)
 else()
     message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}")
@@ -41,6 +41,8 @@ set(SOURCES
     src/SystemReader.cpp
     src/PacketUtil.cpp
     src/NoiseSession.cpp
+    src/Config.cpp
+    src/utility.cpp
 )
 
 # 실행 파일 생성
