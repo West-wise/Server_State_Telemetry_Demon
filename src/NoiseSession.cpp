@@ -1,4 +1,5 @@
 #include "NoiseSession.hpp"
+#include <sodium.h>
 #include <cstring>
 #include <unistd.h>
 

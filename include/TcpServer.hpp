@@ -4,16 +4,17 @@
 #include "CircularBuffer.hpp"
 #include "FileDescriptor.hpp"
 #include "NoiseSession.hpp"
-#include <arpa/inet.h>
+
 #include <atomic>
 #include <csignal>
 #include <cstdint>
 #include <chrono>
 #include <unordered_map>
 #include <string>
+
 #include <sys/epoll.h>
-#include <sys/socket.h>
-#include <unistd.h>
+
+#include <utility>
 
 namespace SST {
 
@@ -32,6 +33,8 @@ struct ClientState {
   SST::CircularBuffer write_buffer;
   SST::NoiseSession   noise;
   uint32_t            last_seq = 0;
+
+  uint32_t            epoll_events = EPOLLIN;
 
   HandshakePhase      phase = HandshakePhase::WAIT_MSG1;
   std::chrono::steady_clock::time_point hs_start = std::chrono::steady_clock::now();

@@ -2,7 +2,6 @@
 #define PACKETUTIL_HPP
 
 #include <cstdint>
-#include <string>
 #include <vector>
 
 namespace SST {

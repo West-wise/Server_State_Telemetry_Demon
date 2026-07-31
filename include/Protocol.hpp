@@ -1,6 +1,5 @@
 #ifndef PROTOCOL_HPP
 #define PROTOCOL_HPP
-#include <arpa/inet.h>
 #include <cstdint>
 #include <string>
 

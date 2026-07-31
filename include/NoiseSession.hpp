@@ -1,7 +1,7 @@
 #ifndef NOISE_SESSION_HPP
 #define NOISE_SESSION_HPP
 
-#include <sodium.h>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
