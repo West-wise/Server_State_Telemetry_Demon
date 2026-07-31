@@ -27,9 +27,12 @@ public:
     }
 
     size_t capacity = buffer_.size();
+    // 청크 찾기
+    // 원형 큐이기 때문에 용량에서 tail_까지의 공간과 들어온 데이터의 길이를 비교해서 데이터를 삽입할 위치를 결정한다
     size_t first_chunk = std::min(len, capacity - tail_);
-    std::memcpy(&buffer_[tail_], data, first_chunk);
+    std::memcpy(&buffer_[tail_], data, first_chunk); // tail_위치 부터 data를 first_chunk만큼 복사한다
 
+    // 남은 데이터 처리
     if (len > first_chunk) {
       std::memcpy(&buffer_[0], data + first_chunk, len - first_chunk);
     }
@@ -47,7 +50,7 @@ public:
 
     size_t capacity = buffer_.size();
     size_t first_chunk = std::min(len, capacity - head_);
-    if (out_data) {
+    if (out_data) { // out_data가 nullptr이 아닌 경우에만 복사를 수행한다.
       std::memcpy(out_data, &buffer_[head_], first_chunk);
       if (len > first_chunk) {
         std::memcpy(out_data + first_chunk, &buffer_[0], len - first_chunk);
@@ -67,6 +70,7 @@ public:
   }
 
   // 데이터 읽기 및 삭제
+  // 이렇게 2개로 나눈 이유는...
   bool read(uint8_t *out_data, size_t len) {
     if (peek(out_data, len)) {
       consume(len);

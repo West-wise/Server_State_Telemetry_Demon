@@ -76,6 +76,7 @@ void TcpServer::setNonBlocking(int fd) {
   fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+// epoll 초기화
 void TcpServer::initEpoll() {
   epoll_fd_ = SST::FD(epoll_create1(0));
   if (epoll_fd_.get() == -1) {
@@ -109,7 +110,7 @@ void TcpServer::initTimer() {
   }
 
   struct epoll_event event;
-  event.events = EPOLLIN;
+  event.events = EPOLLIN; // 데이터가 들어왔을떄 공지하도록 설정
   event.data.fd = timer_fd_.get();
   if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_ADD, timer_fd_.get(), &event) < 0) {
     throw std::runtime_error("Timerfd epoll add failed");
@@ -125,6 +126,7 @@ void TcpServer::run() {
       break;
     }
 
+    // epoll로 부터 이벤트가 있는 fd를 받아옴
     int occurred_fds = epoll_wait(epoll_fd_.get(), events, MAX_EVENTS, 500);
     if (occurred_fds < 0) {
       if (errno == EINTR)
@@ -133,9 +135,10 @@ void TcpServer::run() {
       break;
     }
 
+    // 이벤트가 발생한 fd를 돌면서 처리
     for (int i = 0; i < occurred_fds; i++) {
-      int cur_fd = events[i].data.fd;
-      uint32_t ev = events[i].events;
+      int cur_fd = events[i].data.fd; // 이벤트가 발생한 FD
+      uint32_t ev = events[i].events; 
 
       // 새로운 연결 요청 처리
       if (cur_fd == server_fd_.get()) {
@@ -150,13 +153,20 @@ void TcpServer::run() {
           evictStalledHandshakes();
         }
       } else {
-        if (ev & EPOLLIN) {
+        if (ev & (EPOLLHUP | EPOLLERR | EPOLLRDHUP)){
+          // 연결이 종료된 이벤트나 에러가 발생한 경우 해제
+          // 근데 에러가 발생한 경우에는 재연결을 시도해봐야하나..
+          // 근데 뭐 재연결은 클라이언트 측에서 시도해야하는거지 서버는 뭐
+          handleDisconnect(cur_fd);
+          continue;
+        }
+
+        if (ev & EPOLLIN){ // 데이터가 들어왔음
           handleClientData(cur_fd); // 클라이언트 데이터 처리
-        } else if (ev & EPOLLOUT) {
-          handleWrite(cur_fd); // 클라이언트 쓰기 처리
-        } 
-        if (ev & (EPOLLERR | EPOLLHUP)) {
-          handleDisconnect(cur_fd); // 클라이언트 연결 해제 관리
+          continue;
+        }
+        if (ev & EPOLLOUT) { // 즉시 데이터를 전송할 수 있도록 출력 버퍼가 비워진 이벤트
+          handleWrite(cur_fd); // 클라이언트 쓰기 처리 - 보통 핸드셰이크에서 사용
         }
       }
     }
@@ -167,8 +177,9 @@ void TcpServer::run() {
 void TcpServer::broadcastStats(){
   if(clients_.empty()) return;
 
+  // 매번 이렇게 객체를 생성하는게 맞을까 싶긴함..
   SystemStats stats = SystemReader::getInstance().getStats();
-  std::vector<uint8_t> body(sizeof(SystemStats));
+  std::vector<uint8_t> body(sizeof(SystemStats)); // 어차피 body사이즈도 정해져있지 않나?
   std::memcpy(body.data(), &stats, sizeof(SystemStats));
 
   for(auto &[fd, client_info] : clients_){
@@ -178,23 +189,30 @@ void TcpServer::broadcastStats(){
     if(state_it == client_states_.end()) continue;
     ClientState &state = state_it->second;
 
+    // 사용자들 마다 시퀀스 넘버가 다르니까 매번 생성해줘야함
     std::vector<uint8_t> packet = PacketUtil::createPacket(
         (uint8_t)SST::MessageType::RES_SystemStat, state.last_seq++, body);
 
+    // 패킷을 암호화함
     std::vector<uint8_t> cipherText = state.noise.encrypt(packet.data(), packet.size());
     if(cipherText.empty()) continue;
 
     uint32_t ct_len = (uint32_t)cipherText.size();
-    uint8_t len_buf[4] = {
+    uint8_t len_buf[4] = { // ct_len의 값을 클라이언트 측에서 잘 읽을 수 있도록 little-endian으로 변환
       uint8_t(ct_len),
       uint8_t(ct_len >> 8),
       uint8_t(ct_len >> 16),
       uint8_t(ct_len >> 24)
     };
 
-    if(!state.write_buffer.write(len_buf, 4)) continue;
-    if(!state.write_buffer.write(cipherText.data(), cipherText.size())) continue;
-    updateEpollEvents(fd, EPOLLIN | EPOLLOUT);
+    // 버퍼에 쓰기
+    // 근데 이렇게 2번 나눠서 하면 원자성이 보장되지가 않는데
+    // 처음부터 2개다 연속으로 써도 될 공간이 잇는지를 확인
+    if(state.write_buffer.freeSpace() < 4 + cipherText.size()) continue;
+    
+    state.write_buffer.write(len_buf, 4);
+    state.write_buffer.write(cipherText.data(), cipherText.size());
+    updateEpollEvents(fd, EPOLLIN | EPOLLOUT); 
   }
 }
 
@@ -204,6 +222,7 @@ void TcpServer::acceptConnection() {
 
   // 기존 : accept + fcntl(GET) + fcntl(SET) -> 3번의 시스템 콜
   // accept4 : 원자적으로 논블로킹 설정, 리눅스 전용(kernel 2.6.28 이상)
+  // 
   int access_fd = accept4(server_fd_.get(), (struct sockaddr *)&client_addr, &client_len, SOCK_NONBLOCK | SOCK_CLOEXEC);
   if (access_fd < 0) return;
 
@@ -298,6 +317,8 @@ void TcpServer::evictStalledHandshakes() {
   }
 }
 
+// 클라이언트의 데이터를 처리하는 함수
+// 
 void TcpServer::handleClientData(int client_fd) {
   uint8_t temp_buf[4096];
   ssize_t bytes_read = read(client_fd, temp_buf, sizeof(temp_buf));
@@ -332,6 +353,7 @@ void TcpServer::handleClientData(int client_fd) {
 
     uint8_t len_buf[4];
     state.read_buffer.peek(len_buf,4);
+    // 읽기 버퍼는 8192바이트인데 따로 이런 상한 검사가 없다..
     uint32_t cipherText_len = len_buf[0] | len_buf[1] << 8 | (len_buf[2] << 16) | (len_buf[3] << 24);
 
     if(state.read_buffer.size() < 4 + cipherText_len) break;
@@ -433,12 +455,22 @@ void TcpServer::handleWrite(int client_fd) {
   }
 }
 
+// EPOLL의 감시 대상을 업데이트하기 위한 함수
 void TcpServer::updateEpollEvents(int fd, uint32_t events) {
+  auto fd_it = client_states_.find(fd);
+  // 캐싱해두고 기존과 다를경우에만 업데이트 하도록(시스템 콜 조금이라도 줄이기 위함)
+  if(fd_it != client_states_.end() && fd_it->second.epoll_events == events){
+    return;
+  }
   struct epoll_event ev;
   ev.events = events;
   ev.data.fd = fd;
-  if (epoll_ctl(epoll_fd_.get(), EPOLL_CTL_MOD, fd, &ev) == -1) {
+  if(epoll_ctl(epoll_fd_.get(), EPOLL_CTL_MOD, fd, &ev) == -1){
     SST::Logger::log("[Error] Epoll ctl mod failed for fd " + std::to_string(fd));
+    return;
+  }
+  if( fd_it != client_states_.end()) {
+    fd_it->second.epoll_events = events;
   }
 }
 } // namespace SST

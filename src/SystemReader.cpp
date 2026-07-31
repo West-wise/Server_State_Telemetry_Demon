@@ -60,13 +60,14 @@ void SystemReader::stop() {
 
 // 락을 걸고 현재 수집된 정보를 반환
 SystemStats SystemReader::getStats() {
+  // shared_lock의 경우 다수의 스레드가 동시에 읽을 수는 있지만 쓰기 작업은 불가능하다.
   std::shared_lock lock(mutex_);
   return current_stats_;
 }
 
 void SystemReader::updateLoop() {
-  int disk_update_counter =
-      0; // disk정보는 자주 변하지 않는 정보이기 때문에 10초마다 갱신
+  // disk정보는 자주 변하지 않는 정보이기 때문에 10초마다 갱신
+  int disk_update_counter = 0; 
 
   while (running_) {
     {
@@ -87,10 +88,13 @@ void SystemReader::updateLoop() {
         std::shared_lock lock(mutex_);
         next_stats.disk_info = current_stats_.disk_info;
       }
+      // 10초를 넘어가지 않도록
       disk_update_counter = (disk_update_counter + 1) % 10;
-      next_stats.valid_mask = 0xFFFF;
+      next_stats.valid_mask = 0xFFFF; // 근데 이건 따로 검사하는 로직없이 무조건 0xFFFF로 채우고있어서 좀 의미가 모호하다
       { // 커밋, 커밋 시점에만 락
-        std::unique_lock lock(mutex_);
+        // 단순히 락걸고 커밋하고 끝나는거면 unique_lock보다는 lock_guard가 맞을듯하다
+        // unique_lock은 lock에 대해서 제어할 필요가있을때 사용하는게 맞다고 본다.
+        std::lock_guard lock(mutex_);
         current_stats_ = next_stats;
       }
     }
@@ -98,6 +102,7 @@ void SystemReader::updateLoop() {
   }
 }
 
+// CPU 사용량 측정
 void SystemReader::parseProcStat(SystemStats &out) {
   std::ifstream file("/proc/stat");
   if (!file.is_open())
@@ -138,6 +143,7 @@ void SystemReader::parseProcStat(SystemStats &out) {
   }
 }
 
+// 메모리 사용량 측정
 void SystemReader::parseMemInfo(SystemStats &out) {
   std::ifstream file("/proc/meminfo");
   if (!file.is_open())
@@ -173,6 +179,7 @@ void SystemReader::parseMemInfo(SystemStats &out) {
   }
 }
 
+// 업타임 측정
 void SystemReader::parseUptime(SystemStats &out) {
   struct sysinfo info;
   if (sysinfo(&info) == 0) {
@@ -197,6 +204,10 @@ bool SystemReader::parseNetDevInfo(NetCounter &out) {
   NetCounter sum{};
 
   // 그중에서 [0~3]은 수신(RX), [8~11]은 송신(TX)
+  // lo는 제외하고 모든 인터페이스에 대해서 합산
+  // 차라리 인터페이스별 정보를 보여주는 것도 나쁘지 않지 않을까?
+  // 모니터링 측면에서도 어떤 인터페이스가 트래픽을 많이 발생시키는지 확인하는게 더 좋을거같긴한데
+  // 이러면 프로토콜을 바꿔야하는데..흠
   while (std::getline(file, line)) {
     if (line.empty())
       continue;
@@ -327,6 +338,7 @@ void SystemReader::fileDescriptorsInfo(SystemStats &stats) {
     SST::Logger::log("fileDescriptorsInfo: pared failed");
     return;
   }
+  // 음 차라리 그냥 사용중인 값만 나타내는게 나을듯..
   stats.fd_info.allocated_fd_cnt = allocated;
   stats.fd_info.using_fd_cnt = allocated - free;
 }
