@@ -4,11 +4,9 @@
 #include "Protocol.hpp"
 #include <atomic>
 #include <chrono>
-#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thread>
-#include <utility>
 
 namespace SST {
 
@@ -67,7 +65,6 @@ private:
   void partitionsInfo(SystemStats &stats);
   void nfsPartitionsInfo(SystemStats &stats);
   bool parseNetDevInfo(NetCounter &out);
-  static std::string getHostName();
 };
 } // namespace SST
 

@@ -180,15 +180,8 @@ void SystemReader::parseUptime(SystemStats &out) {
   }
 }
 
-std::string SystemReader::getHostName() {
-  char hostname_buf[HOST_NAME_MAX + 1];
-  std::memset(hostname_buf, 0, sizeof(hostname_buf));
-  if (gethostname(hostname_buf, sizeof(hostname_buf)) == 0) {
-    return std::string(hostname_buf);
-  }
-  return "Unknown";
-}
-
+// 네트워크 트래픽 측정
+// 지금은 
 bool SystemReader::parseNetDevInfo(NetCounter &out) {
   std::ifstream file("/proc/net/dev");
   if (!file.is_open())

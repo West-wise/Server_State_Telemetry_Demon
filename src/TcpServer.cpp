@@ -18,16 +18,6 @@
 
 namespace SST {
 
-// static std::string hexToBytes(const std::string &hex) {
-//   std::string bytes;
-//   for (unsigned int i = 0; i < hex.length(); i += 2) {
-//     std::string byteString = hex.substr(i, 2);
-//     char byte = (char)strtol(byteString.c_str(), NULL, 16);
-//     bytes.push_back(byte);
-//   }
-//   return bytes;
-// }
-
 TcpServer::TcpServer(int port)
     : port_(port), server_fd_(-1), epoll_fd_(-1), timer_fd_(-1){
   if(!SST::Config::getServerKeypair(server_static_priv_, server_static_pub_)){

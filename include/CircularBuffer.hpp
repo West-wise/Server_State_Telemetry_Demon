@@ -76,19 +76,8 @@ public:
   }
 
   size_t size() const { return size_; }
-  size_t capacity() const { return buffer_.size(); }
   size_t freeSpace() const { return buffer_.size() - size_; }
   bool empty() const { return size_ == 0; }
-
-  // 연속된 메모리 포인터 반환 (가능한 경우) -> 벡터 변환용
-  // 링버퍼 특성상 항상 연속적이지 않으므로, 필요한 경우 임시 벡터를 반환하거나
-  // 복사가 필요할 수 있음 여기서는 편의를 위해 전체 데이터를 벡터로 반환하는
-  // 헬퍼 추가
-  std::vector<uint8_t> toVector() const {
-    std::vector<uint8_t> res(size_);
-    peek(res.data(), size_);
-    return res;
-  }
 
 private:
   std::vector<uint8_t> buffer_;
