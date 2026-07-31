@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  build-and-test:
+  test:
     runs-on: ubuntu-latest
 
     steps:
@@ -30,8 +30,8 @@ jobs:
 
       - name: Prepare Runtime Dirs
         run: |
-          sudo mkdir -p /etc/sstd
-          sudo chown "$USER":"$USER" /etc/sstd
+          sudo mkdir -p /etc/sstd /var/log/sstd
+          sudo chown "$USER":"$USER" /etc/sstd /var/log/sstd
           sudo cp config/sstd.ini /etc/sstd/sstd.ini
 
       - name: Run Server and Test
@@ -44,6 +44,54 @@ jobs:
           ./SST_Demon &
           SERVER_PID=$!
           cd ..
+          trap 'kill -SIGTERM $SERVER_PID' EXIT
           sleep 2
+          sudo cp /etc/sstd/sstd.key build/sstd.key
           python test/test_multi_client.py
-          kill -SIGTERM $SERVER_PID
+
+  build-aarch64:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install cross compiler
+        run: sudo apt-get update && sudo apt-get install -y g++-aarch64-linux-gnu
+
+      - name: Build aarch64 binary
+        run: |
+          cmake -S . -B build-aarch64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+          cmake --build build-aarch64 --parallel
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sstd-aarch64-${{ github.sha }}
+          path: build-aarch64/SST_Demon
+          if-no-files-found: error
+          retention-days: 7
+
+  trigger-deploy:
+    needs: build-aarch64
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Jenkins deployment
+        env:
+          JENKINS_URL: ${{ secrets.JENKINS_URL }}
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+        run: |
+          test -n "$JENKINS_URL"
+          curl --fail --show-error --request POST \
+            --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            --data-urlencode "GIT_SHA=${{ github.sha }}" \
+            "$JENKINS_URL/job/sstd-deploy/buildWithParameters"
