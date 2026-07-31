@@ -11,6 +11,7 @@ CTestTestfile.cmake
 _deps
 CMakeUserPresets.json
 build/
+build-verify/
 .vscode/
 
 # CLion
@@ -22,4 +23,3 @@ build/
 .antigravityrules
 .clangd
 sstd_source.tar.gz
-sstd.service

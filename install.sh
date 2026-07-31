@@ -7,7 +7,7 @@ CONFIG_DIR="/etc/sstd"
 CONFIG_SRC="config/sstd.ini"
 CONFIG_DST="$CONFIG_DIR/sstd.ini"
 LOG_DIR="/var/log/sstd"
-SERVICE_SRC="sstd.service"
+SERVICE_SRC="deploy/sstd.service"
 SERVICE_DST="/etc/systemd/system/sstd.service"
 
 if [ "$(id -u)" -ne 0 ]; then

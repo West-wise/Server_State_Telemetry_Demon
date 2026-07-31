@@ -1,0 +1,13 @@
+[Unit]
+Description=Server State Telemetry Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/sstd/sstd /etc/sstd/sstd.ini
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
