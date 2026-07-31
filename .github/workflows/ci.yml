@@ -51,7 +51,7 @@ jobs:
 
   build-aarch64:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Repository
