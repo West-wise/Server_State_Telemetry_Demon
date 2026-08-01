@@ -18,42 +18,81 @@ pipeline {
                 sh 'test -n "$GIT_SHA"'
             }
         }
-        stage('Download artifact') {
+        stage('Download artifacts') {
             steps {
                 withCredentials([string(credentialsId: 'github-actions-artifact-token', variable: 'GITHUB_TOKEN')]) {
                     sh '''#!/bin/bash
                     set -euo pipefail
-                    artifact_name="sstd-aarch64-${GIT_SHA}"
-                    artifact_url=$(curl --fail --silent --show-error \
-                      -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}" | \
-                      python3 -c 'import json, sys; artifacts = json.load(sys.stdin)["artifacts"]; print(artifacts[0]["archive_download_url"] if artifacts else "")')
-                    test -n "$artifact_url"
-                    rm -rf artifact && mkdir artifact
-                    curl --fail --location --silent --show-error \
-                      -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      "$artifact_url" -o artifact.zip
-                    unzip -q artifact.zip -d artifact
-                    test -f artifact/SST_Demon
-                    chmod 0755 artifact/SST_Demon
+                    rm -rf artifact
+                    mkdir -p artifact/arm64 artifact/amd64
+
+                    download_artifact() {
+                      local artifact_name="$1"
+                      local destination="$2"
+                      local artifact_url
+
+                      artifact_url=$(curl --fail --silent --show-error \
+                        -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                        -H "Accept: application/vnd.github+json" \
+                        "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}" | \
+                        python3 -c 'import json, sys; artifacts = json.load(sys.stdin)["artifacts"]; print(artifacts[0]["archive_download_url"] if artifacts else "")')
+                      test -n "$artifact_url"
+                      curl --fail --location --silent --show-error \
+                        -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                        -H "Accept: application/vnd.github+json" \
+                        "$artifact_url" -o "${destination}.zip"
+                      unzip -q "${destination}.zip" -d "$destination"
+                      test -f "$destination/SST_Demon"
+                      chmod 0755 "$destination/SST_Demon"
+                    }
+
+                    download_artifact "sstd-aarch64-${GIT_SHA}" artifact/arm64
+                    download_artifact "sstd-amd64-${GIT_SHA}" artifact/amd64
                     '''
                 }
             }
         }
-        stage('Deploy') {
+        stage('Deploy ARM64 Canary') {
             steps {
                 sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
                     sh '''#!/bin/bash
                     set -euo pipefail
-                    for host in 10.0.0.231 158.180.84.177 134.185.113.76; do
-                      target="${DEPLOY_USER}@${host}"
-                      remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
-                      scp artifact/SST_Demon deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
-                      ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/SST_Demon' '$remote_dir/sstd.service'"
-                      ssh "$target" "rm -rf '$remote_dir'"
-                    done
+                    target="${DEPLOY_USER}@10.0.0.231" # 134.185.115.16, same Jenkins host via private IP
+                    remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
+                    trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
+                    scp artifact/arm64/SST_Demon deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/SST_Demon' '$remote_dir/sstd.service'"
+                    ssh "$target" "sudo systemctl is-active --quiet sstd.service"
+                    '''
+                }
+            }
+        }
+        stage('Deploy ARM64 Second') {
+            steps {
+                sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
+                    sh '''#!/bin/bash
+                    set -euo pipefail
+                    target="${DEPLOY_USER}@158.180.84.177"
+                    remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
+                    trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
+                    scp artifact/arm64/SST_Demon deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/SST_Demon' '$remote_dir/sstd.service'"
+                    ssh "$target" "sudo systemctl is-active --quiet sstd.service"
+                    '''
+                }
+            }
+        }
+        stage('Deploy AMD64') {
+            steps {
+                sshagent(credentials: [env.SSH_CREDENTIALS_ID]) {
+                    sh '''#!/bin/bash
+                    set -euo pipefail
+                    target="${DEPLOY_USER}@134.185.113.76"
+                    remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
+                    trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
+                    scp artifact/amd64/SST_Demon deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/SST_Demon' '$remote_dir/sstd.service'"
+                    ssh "$target" "sudo systemctl is-active --quiet sstd.service"
                     '''
                 }
             }
