@@ -1,5 +1,9 @@
 # Server State Telemetry Daemon (SSTD)
 
+Licensing information for SSTD and bundled dependencies is available in
+`LICENSE`. The vendored spdlog and bundled fmt components are distributed
+under the MIT License; see `lib/spdlog/LICENSE` for the dependency notice.
+
 ![Version](https://img.shields.io/badge/version-2.0.0-blue) ![Language](https://img.shields.io/badge/language-C%2B%2B17-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 C++17로 작성된 경량 시스템 상태 모니터링 데몬입니다.
@@ -42,12 +46,33 @@ port = 41924
 
 [log]
 path = logs/sstd.log
+level = info
+pattern = [%Y-%m-%d %H:%M:%S.%e] [%l] %v
+max_size_mb = 10
+max_files = 5
 
 [proxy]
 host = sstd.test.site
 port = 443
 interface = "eth0"
 ```
+
+### Logging configuration
+
+The logger uses spdlog's asynchronous rotating file sink. `max_size_mb` is
+the maximum size of the active log file, and `max_files` is the number of
+rotated backup files to retain. For example, `max_files = 5` retains
+`sstd.1.log` through `sstd.5.log` in addition to the active file.
+
+`pattern` follows spdlog's pattern syntax. Common fields are:
+
+* `%Y-%m-%d`: date
+* `%H:%M:%S.%e`: time with milliseconds
+* `%l`: log level
+* `%v`: log message
+
+The current logger API records existing messages at the `info` level. The
+`level` option is retained for filtering and future level-specific logging.
 
 ---
 
