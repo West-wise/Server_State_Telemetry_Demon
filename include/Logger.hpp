@@ -1,24 +1,37 @@
 #ifndef LOGGER_HPP
 #define LOGGER_HPP
 
-#include <atomic>
-#include <condition_variable>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
+#include <memory>
 #include <mutex>
-#include <queue>
 #include <string>
 #include <string_view>
-#include <thread>
+
+#include <spdlog/async.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/spdlog.h>
 
 namespace SST {
 
 class Logger {
 public:
-  // 1. 기존과 동일한 정적(Static) API 제공 -> 다른 파일들 수정 불필요
+  struct Options {
+    std::string path;
+    std::string level = "info";
+    std::string pattern = "[%Y-%m-%d %H:%M:%S.%e] [%l] %v";
+    std::size_t max_size_bytes = 10U * 1024U * 1024U;
+    std::size_t max_files = 5U;
+  };
+
+  static bool init(const Options &options) {
+    return getInstance().initImpl(options);
+  }
+
   static bool init(std::string_view log_path) {
-    return getInstance().initImpl(log_path);
+    Options options;
+    options.path = log_path;
+    return init(options);
   }
 
   static void log(const std::string &msg) { getInstance().logImpl(msg); }
@@ -26,128 +39,75 @@ public:
   static void shutdown() { getInstance().shutdownImpl(); }
 
 private:
-  // 2. Meyers Singleton 인스턴스 획득
   static Logger &getInstance() {
     static Logger instance;
     return instance;
   }
 
-  // 3. 생성자 및 소멸자 (RAII 보장)
   Logger() = default;
-  ~Logger() {
-    shutdownImpl(); // 메인에서 깜빡해도 프로그램 종료 시 자동 정리됨
-  }
+  ~Logger() { shutdownImpl(); }
 
-  // 복사 및 대입 방지
-  Logger(const Logger &) = delete;            // 복사
-  Logger &operator=(const Logger &) = delete; // 대입 방지
+  Logger(const Logger &) = delete;
+  Logger &operator=(const Logger &) = delete;
 
-  // 4. 인스턴스 멤버 변수로 변경 (더 이상 static inline이 아님)
-  std::mutex init_mutex_;
-  std::mutex queue_mutex_;
-  std::condition_variable cv_;
-  std::queue<std::string> log_queue_;
-  std::thread worker_thread_;
-  std::atomic<bool> running_{false};
-  std::ofstream log_file_;
-  std::atomic<bool> is_initialized_{false}; // Data Race 방지용 atomic
+  std::mutex mutex_;
+  std::shared_ptr<spdlog::logger> logger_;
 
-  // --- 실제 구현부 ---
-  bool initImpl(std::string_view log_path) {
-    std::lock_guard<std::mutex> lock(init_mutex_); // 생성하기 위한 락 획득
-    if (is_initialized_) // 이미 초기화 되어있다면 생략
+  bool initImpl(const Options &options) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (logger_) {
       return true;
+    }
 
     try {
-      std::filesystem::path path(log_path);
-      std::filesystem::path dir = path.parent_path();
-      if (!dir.empty() && !std::filesystem::exists(dir)) {
-        std::filesystem::create_directories(dir);
+      const std::filesystem::path path(options.path);
+      const std::filesystem::path directory = path.parent_path();
+      if (!directory.empty() && !std::filesystem::exists(directory)) {
+        std::filesystem::create_directories(directory);
       }
 
-      log_file_.open(path, std::ios::out | std::ios::app);
-      if (!log_file_.is_open()) {
-        std::cerr << "[Logger] Failed to open log file." << std::endl;
-        return false;
-      }
+      const std::size_t max_size_bytes =
+          options.max_size_bytes == 0U ? 10U * 1024U * 1024U
+                                       : options.max_size_bytes;
+      const std::size_t max_files = options.max_files == 0U ? 1U
+                                                            : options.max_files;
+
+      logger_ = spdlog::create_async<spdlog::sinks::rotating_file_sink_mt>(
+          "sstd", path.string(), max_size_bytes, max_files, false);
+      logger_->set_pattern(options.pattern);
+      logger_->set_level(spdlog::level::from_str(options.level));
+      logger_->flush_on(spdlog::level::info);
     } catch (const std::exception &e) {
       std::cerr << "[Logger] Init Error: " << e.what() << std::endl;
+      logger_.reset();
       return false;
     }
 
-    running_ = true;
-    worker_thread_ = std::thread(&Logger::processQueue, this);
-    is_initialized_ = true;
-
-    std::cout << "[Logger] Async logger started. Path: " << log_path
+    std::cout << "[Logger] Async logger started. Path: " << options.path
               << std::endl;
     return true;
   }
 
   void logImpl(const std::string &msg) {
-    if (!is_initialized_) // 아직 로깅 스레드가 초기화 되지 않은 상태에서 로거를
-                          // 호출하면 안됨
-      return;
-
-    {
-      std::lock_guard<std::mutex> lock(queue_mutex_);
-      log_queue_.push(msg);
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (logger_) {
+      logger_->info("{}", msg);
     }
-    cv_.notify_one();
   }
 
   void shutdownImpl() {
-    // 이미 종료되었다면 중복 실행 방지
-    if (!running_.exchange(false))
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!logger_) {
       return;
-
-    cv_.notify_all();
-
-    if (worker_thread_.joinable()) {
-      worker_thread_.join();
     }
 
-    if (log_file_.is_open()) {
-      log_file_.close();
-    }
-
-    is_initialized_ = false;
-  }
-
-  void processQueue() {
-    while (running_) {
-      std::queue<std::string> local_queue;
-
-      {
-        std::unique_lock<std::mutex> lock(queue_mutex_);
-        cv_.wait(lock, [this] { return !log_queue_.empty() || !running_; });
-        std::swap(log_queue_, local_queue);
-      }
-
-      while (!local_queue.empty()) {
-        std::string msg = local_queue.front();
-        local_queue.pop();
-
-        if (log_file_.is_open()) {
-          log_file_ << msg << '\n';
-        }
-      }
-      log_file_.flush();
-    }
-    // 스레드 종료 직전 남은 큐 강제 플러시
-    std::queue<std::string> tmp_queue;
-    {
-      std::lock_guard<std::mutex> lock(queue_mutex_);
-      std::swap(log_queue_, tmp_queue);
-    }
-    while (!tmp_queue.empty()) {
-      if (log_file_.is_open()) {
-        log_file_ << tmp_queue.front() << '\n';
-      }
-      tmp_queue.pop();
-    }
+    logger_->flush();
+    spdlog::drop("sstd");
+    logger_.reset();
+    spdlog::shutdown();
   }
 };
+
 } // namespace SST
 
 #endif // LOGGER_HPP
