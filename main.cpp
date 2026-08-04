@@ -27,6 +27,7 @@ int main(int argc, char *argv[]) {
   std::signal(SIGTERM, handle_signal);
 
   // Config 로드 (argv 지원)
+  // argv없다면 기본 경로
   std::string config_path = std::string(CONFIG_FILE_PATH);
   bool show_qr = false;
 
@@ -46,7 +47,23 @@ int main(int argc, char *argv[]) {
 
   // 설정 값 읽기
   int port = SST::Config::getInt("server", "port", 41924);
-  std::string log_path(SST::Config::getString("log", "path", "logs/sstd.log"));
+  SST::Logger::Options logger_options;
+  logger_options.path =
+      SST::Config::getString("log", "path", "logs/sstd.log");
+  logger_options.level = SST::Config::getString("log", "level", "info");
+  logger_options.pattern = SST::Config::getString(
+      "log", "pattern", "[%Y-%m-%d %H:%M:%S.%e] [%l] %v");
+
+  const int max_size_mb = SST::Config::getInt("log", "max_size_mb", 10);
+  if (max_size_mb > 0) {
+    logger_options.max_size_bytes =
+        static_cast<std::size_t>(max_size_mb) * 1024U * 1024U;
+  }
+
+  const int max_files = SST::Config::getInt("log", "max_files", 5);
+  if (max_files > 0) {
+    logger_options.max_files = static_cast<std::size_t>(max_files);
+  }
   std::string server_pubkey_hex = SST::Config::getServerPubKeyHex();
 
   if (show_qr) {
@@ -70,7 +87,7 @@ int main(int argc, char *argv[]) {
   }
 
   // Async Logger 초기화
-  if (!SST::Logger::init(log_path)) {
+  if (!SST::Logger::init(logger_options)) {
     std::cerr << "[Server] Logger init failed." << std::endl;
     return -1;
   }

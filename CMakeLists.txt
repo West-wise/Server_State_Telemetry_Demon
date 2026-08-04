@@ -30,6 +30,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/lib
     ${CMAKE_SOURCE_DIR}/lib/libsodium/include
+    ${CMAKE_SOURCE_DIR}/lib/spdlog/include
 )
 
 
