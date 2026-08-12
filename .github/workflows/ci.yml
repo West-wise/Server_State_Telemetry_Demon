@@ -102,6 +102,30 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-amd64:
+    needs: test
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build amd64 binary
+        run: |
+          cmake -S . -B build-amd64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=x86_64
+          cmake --build build-amd64 --parallel
+
+      - name: Upload deployment artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sstd-amd64-${{ github.sha }}
+          path: build-amd64/SST_Demon
+          if-no-files-found: error
+          retention-days: 7
+
   trigger-deploy:
     needs: [build-aarch64, build-amd64]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
