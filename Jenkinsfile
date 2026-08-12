@@ -9,7 +9,7 @@ pipeline {
         string(name: 'DEPLOY_USER', defaultValue: 'ubuntu', description: 'SSH deployment account')
     }
     environment {
-        GITHUB_REPOSITORY = 'West-wise/Server_State_Telemetry'
+        GITHUB_REPOSITORY = 'West-wise/Server_State_Telemetry_Demon'
         SSH_CREDENTIALS_ID = 'sstd-deploy-ssh'
     }
     stages {
