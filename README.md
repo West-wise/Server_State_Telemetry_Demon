@@ -57,22 +57,23 @@ port = 443
 interface = "eth0"
 ```
 
-### Logging configuration
+### 로깅 설정
 
-The logger uses spdlog's asynchronous rotating file sink. `max_size_mb` is
-the maximum size of the active log file, and `max_files` is the number of
-rotated backup files to retain. For example, `max_files = 5` retains
-`sstd.1.log` through `sstd.5.log` in addition to the active file.
+로거는 spdlog의 비동기 회전 파일 sink를 사용합니다. `max_size_mb`는
+현재 로그 파일 하나의 최대 크기이며, `max_files`는 회전된 백업 파일의
+보관 개수입니다. 예를 들어 `max_files = 5`이면 현재 파일 외에
+`sstd.1.log`부터 `sstd.5.log`까지 보관합니다.
 
-`pattern` follows spdlog's pattern syntax. Common fields are:
+`pattern`은 spdlog 패턴 문법을 사용합니다. 자주 사용하는 항목은 다음과
+같습니다.
 
-* `%Y-%m-%d`: date
-* `%H:%M:%S.%e`: time with milliseconds
-* `%l`: log level
-* `%v`: log message
+* `%Y-%m-%d`: 날짜
+* `%H:%M:%S.%e`: 밀리초를 포함한 시각
+* `%l`: 로그 레벨
+* `%v`: 로그 메시지
 
-The current logger API records existing messages at the `info` level. The
-`level` option is retained for filtering and future level-specific logging.
+현재 로거 API가 기록하는 메시지는 `info` 레벨입니다. `level` 설정은 로그
+필터링과 향후 레벨별 로깅을 위해 유지됩니다.
 
 ---
 
@@ -84,7 +85,8 @@ The current logger API records existing messages at the `info` level. The
 sst://server?name=<서버이름>&ip=<IP>&port=<포트>&pub_key=<64자리_공개키_hex>&ts=<Unix_타임스탬프>
 ```
 
-모바일 클라이언트는 QR 코드를 스캔하여 서버 공개키를 핀닝하고 자동 연결합니다.
+모바일 클라이언트([SSTC](https://github.com/West-wise/Server_State_Telemetry_Client))는
+QR 코드를 스캔하여 서버 공개키를 핀닝하고 자동 연결합니다.
 
 ---
 

@@ -9,7 +9,7 @@ pipeline {
         string(name: 'DEPLOY_USER', defaultValue: 'ubuntu', description: 'SSH deployment account')
     }
     environment {
-        GITHUB_REPOSITORY = 'West-wise/Server_State_Telemetry_Demon'
+        GITHUB_REPOSITORY = 'West-wise/Server_State_Telemetry'
         SSH_CREDENTIALS_ID = 'sstd-deploy-ssh'
     }
     stages {
@@ -42,8 +42,8 @@ pipeline {
                         -H "Accept: application/vnd.github+json" \
                         "$artifact_url" -o "${destination}.zip"
                       unzip -q "${destination}.zip" -d "$destination"
-                      test -f "$destination/SST_Demon"
-                      chmod 0755 "$destination/SST_Demon"
+                      test -f "$destination/sstd"
+                      chmod 0755 "$destination/sstd"
                     }
 
                     download_artifact "sstd-aarch64-${GIT_SHA}" artifact/arm64
@@ -60,8 +60,8 @@ pipeline {
                     target="${DEPLOY_USER}@10.0.0.231" # 134.185.115.16, same Jenkins host via private IP
                     remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
                     trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
-                    scp artifact/arm64/SST_Demon deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
-                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/SST_Demon' '$remote_dir/sstd.service'"
+                    scp artifact/arm64/sstd deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/sstd' '$remote_dir/sstd.service'"
                     ssh "$target" "sudo systemctl is-active --quiet sstd.service"
                     '''
                 }
@@ -75,8 +75,8 @@ pipeline {
                     target="${DEPLOY_USER}@158.180.84.177"
                     remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
                     trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
-                    scp artifact/arm64/SST_Demon deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
-                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/SST_Demon' '$remote_dir/sstd.service'"
+                    scp artifact/arm64/sstd deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/sstd' '$remote_dir/sstd.service'"
                     ssh "$target" "sudo systemctl is-active --quiet sstd.service"
                     '''
                 }
@@ -90,8 +90,8 @@ pipeline {
                     target="${DEPLOY_USER}@134.185.113.76"
                     remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
                     trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
-                    scp artifact/amd64/SST_Demon deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
-                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/SST_Demon' '$remote_dir/sstd.service'"
+                    scp artifact/amd64/sstd deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/sstd' '$remote_dir/sstd.service'"
                     ssh "$target" "sudo systemctl is-active --quiet sstd.service"
                     '''
                 }

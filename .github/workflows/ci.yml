@@ -41,7 +41,7 @@ jobs:
           SSTD_KEY_PATH: /etc/sstd/sstd.key
         run: |
           cd build
-          ./SST_Demon &
+          ./sstd &
           SERVER_PID=$!
           cd ..
           trap 'kill -SIGTERM $SERVER_PID' EXIT
@@ -74,7 +74,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sstd-aarch64-${{ github.sha }}
-          path: build-aarch64/SST_Demon
+          path: build-aarch64/sstd
           if-no-files-found: error
           retention-days: 7
 
@@ -98,7 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sstd-amd64-${{ github.sha }}
-          path: build-amd64/SST_Demon
+          path: build-amd64/sstd
           if-no-files-found: error
           retention-days: 7
 

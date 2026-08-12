@@ -2,16 +2,16 @@
 
 ## 1. 프로젝트 개요
 **SSTD**는 Linux 기반의 경량 **시스템 상태 모니터링 데몬**입니다. 
-정적 링크(Static Linking)된 `libsodium` 외에는 외부 공유 라이브러리 의존성(Boost, OpenSSL 등)이 없으며, **Pure C++17**과 **Linux System Call** (`epoll`, `socket`, `procfs`)만을 사용하여 구현되어 리소스가 제한적인 환경에 최적화되어 있습니다.
+`libsodium`과 `spdlog`를 프로젝트에 포함하고 정적으로 링크하므로 실행 시 별도의 공유 라이브러리 설치가 필요하지 않습니다. **C++17**과 **Linux System Call** (`epoll`, `socket`, `procfs`)을 사용하여 리소스가 제한적인 환경에 최적화되어 있습니다.
 
 ## 2. 핵심 철학 (Core Philosophy)
 1.  **Zero Runtime Dependency (런타임 의존성 제로)**: 런타임 시 외부 공유 라이브러리 설치가 필요 없어 단일 바이너리만으로 단순하게 사용할 수 있습니다.
 2.  **Performance (성능 최우선)**:
-    *   **I/O Multiplexing**: `epoll` (Level Triggered) 기반의 비동기 네트워크 처리를 수행합니다.
+    *   **I/O Multiplexing**: `epoll` 기반의 논블로킹 네트워크 처리를 수행합니다.
     *   **Circular Buffer**: 수신/송신 버퍼에 링 버퍼를 도입하여 메모리 복사 및 재할당 비용(`O(N)`)을 제거했습니다.
     *   **Multi-threading**: 네트워크(Main), 수집(SystemReader), 로깅(Logger) 3중 스레드 구조로 병목 현상을 방지합니다.
 3.  **Safety & Stability (안전성)**:
-    *   **RAII**: `SST::FD` 래퍼 클래스를 통해 소켓 등 파일 디스크립터 누수를 완벽하게 차단합니다.
+    *   **RAII**: `SST::FD` 래퍼 클래스를 통해 소켓 등 파일 디스크립터의 수명과 해제를 관리합니다.
     *   **Async Signal Safe**: 시그널 핸들러에서의 안전한 플래그 처리를 통해 예측 불가능한 동작을 방지합니다.
 
 ## 3. 아키텍처 상세
@@ -20,16 +20,15 @@
 *   **Main Thread (Network)**:
     *   `TcpServer` 클래스가 관리합니다.
     *   `epoll_wait` 루프를 돌며 `accept`, `recv`, `send` 이벤트를 처리합니다.
-    *   패킷 파싱, HMAC 검증, 비즈니스 로직 실행을 담당합니다.
+    *   Noise 복호화, 패킷 파싱, 매직·타임스탬프 검증, 비즈니스 로직 실행을 담당합니다.
     *   **설계 의도**: 네트워크 로직을 메인 스레드에 집중시켜 컨텍스트 스위칭 비용을 최소화했습니다.
 *   **SystemReader Thread (Collector)**:
     *   `SystemReader` 싱글톤 객체가 관리합니다.
     *   1초 주기로 깨어나 `/proc/stat`(CPU), `/proc/meminfo`(Memory) 파일을 파싱합니다.
     *   수집된 데이터는 `std::shared_mutex`로 보호되어, 메인 스레드가 안전하게 최신 값을 읽어갈 수 있습니다.
 *   **Logger Thread (I/O)**:
-    *   **Async Logger** 패턴을 구현했습니다.
-    *   메인 스레드는 `std::queue`에 로그 문자열을 넣기만 하고 즉시 리턴합니다(Non-blocking).
-    *   별도의 Worker 스레드가 큐를 지속적으로 감시하며 실제 파일 쓰기(`write`)를 수행합니다.
+    *   spdlog의 비동기 rotating file sink를 사용합니다.
+    *   메인 스레드는 비동기 로거에 로그를 전달하고, spdlog의 worker thread가 파일 쓰기를 수행합니다.
     *   **이유**: 디스크 I/O는 블로킹될 가능성이 높으므로, 이를 메인 스레드에서 분리하여 네트워크 지연을 방지했습니다.
 
 ### 3.2. 데이터 흐름 (Data Flow)
@@ -38,10 +37,10 @@
 3.  **송신 (Outbound)**: `CircularBuffer` -> `epoll` (EPOLLOUT) -> `write` -> Client
 
 ## 4. 보안 (Security - SSTD Protocol v2.0)
-*   **보안 계층**: Noise_XX_25519_ChaChaPoly_BLAKE2b 프로토콜을 통한 상호 인증 및 전방 비밀성(Forward Secrecy) 보장.
+*   **보안 계층**: Noise_XX_25519_ChaChaPoly_BLAKE2b 프로토콜을 통한 서버 공개키 검증 및 전방 비밀성(Forward Secrecy) 제공.
 *   **패킷 포맷**: 24 Byte Secure Header (Little Endian) + ChaCha20-Poly1305 암호화 Body.
 *   **기밀성 및 무결성 (Integrity)**: 모든 패킷은 ChaCha20-Poly1305로 암호화되며 Poly1305 MAC을 통해 무결성을 검증합니다.
-*   **재전송 방지 (Replay Protection)**: 헤더에 `timestamp`와 `request_id` 필드를 포함하며, 시간 만료 패킷은 서버에서 자동 검증 및 차단됩니다.
+*   **재전송 방지 (Replay Protection)**: 헤더의 `timestamp`를 검사하여 5초보다 오래되었거나 1초보다 미래인 패킷을 차단합니다. `request_id`는 포함되지만 현재 중복 검증에는 사용하지 않습니다.
 *   **자격 증명**: 서버 최초 실행 시 자동 생성된 X25519 정적 키를 사용하며, 클라이언트는 QR 코드를 통해 서버의 공개키를 핀닝(Pinning)합니다.
 
 ## 5. 성능 개선 사항
