@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # 프로젝트 이름 및 버전 설정
-project(SSTD VERSION 1.0.0 LANGUAGES CXX)
+project(SSTD VERSION 2.0.0 LANGUAGES CXX)
 
 # C++17 표준 사용 설정
 set (CMAKE_CXX_STANDARD 17)
