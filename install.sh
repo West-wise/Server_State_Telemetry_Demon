@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-BINARY_SRC="build/SST_Demon"
+BINARY_SRC="build/sstd"
 INSTALL_BIN="/opt/sstd/sstd"
 CONFIG_DIR="/etc/sstd"
 CONFIG_SRC="config/sstd.ini"
