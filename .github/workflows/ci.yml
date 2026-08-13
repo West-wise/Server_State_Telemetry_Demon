@@ -46,7 +46,6 @@ jobs:
           cd ..
           trap 'kill -SIGTERM $SERVER_PID' EXIT
           sleep 2
-          sudo cp /etc/sstd/sstd.key build/sstd.key
           python test/test_multi_client.py
 
   build-aarch64:
