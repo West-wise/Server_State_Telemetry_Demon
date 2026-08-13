@@ -23,6 +23,10 @@ jobs:
         run: pip install cryptography
 
       - name: Build and run tests
+        env:
+          SSTD_HOST: ${{ secrets.HOST || '127.0.0.1' }}
+          SSTD_PORT: ${{ secrets.PORT || '41924' }}
+          SSTD_KEY_PATH: /etc/sstd/sstd.key
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --parallel
@@ -33,7 +37,6 @@ jobs:
           server_pid=$!
           trap 'kill -SIGTERM "$server_pid" 2>/dev/null || true' EXIT
           sleep 2
-          sudo cp /etc/sstd/sstd.key build/sstd.key
           python test/test_multi_client.py
 
   prepare:
