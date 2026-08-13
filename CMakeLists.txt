@@ -47,17 +47,17 @@ set(SOURCES
 )
 
 # 실행 파일 생성
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(sstd ${SOURCES})
 
-target_link_options(${PROJECT_NAME} PRIVATE
+target_link_options(sstd PRIVATE
     -Wl,--gc-sections
     -s
 )
-set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+set_property(TARGET sstd PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
 
 # 라이브러리 링크(스레드, libsodium)
 find_package(Threads REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE 
+target_link_libraries(sstd PRIVATE
     Threads::Threads
     ${SODIUM_LIB_PATH}
 )
