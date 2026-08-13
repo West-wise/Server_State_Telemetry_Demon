@@ -1,0 +1,187 @@
+name: Release SSTD
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install test dependencies
+        run: pip install cryptography
+
+      - name: Build and run tests
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          sudo mkdir -p /etc/sstd /var/log/sstd
+          sudo chown "$USER":"$USER" /etc/sstd /var/log/sstd
+          sudo cp config/sstd.ini /etc/sstd/sstd.ini
+          ./build/sstd &
+          server_pid=$!
+          trap 'kill -SIGTERM "$server_pid" 2>/dev/null || true' EXIT
+          sleep 2
+          sudo cp /etc/sstd/sstd.key build/sstd.key
+          python test/test_multi_client.py
+
+  prepare:
+    needs: test
+    runs-on: ubuntu-22.04
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine release version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          version=$(sed -nE 's/^[[:space:]]*project\(SSTD VERSION ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' CMakeLists.txt)
+          test -n "$version"
+          release_tag="v${version}"
+
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" >/dev/null 2>&1; then
+            echo "Tag ${release_tag} already exists." >&2
+            exit 1
+          fi
+
+          if gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release ${release_tag} already exists." >&2
+            exit 1
+          fi
+
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
+  package-amd64:
+    needs: [test, prepare]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build amd64 package
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_PROCESSOR=x86_64
+          cmake --build build --parallel
+          mkdir -p package
+          cp build/sstd package/sstd
+          cp deploy/sstd.service deploy/deploy.sh package/
+          chmod 0755 package/sstd package/deploy.sh
+          release_tag="${{ needs.prepare.outputs.release_tag }}"
+          tar -czf "sstd-amd64-${release_tag}.tar.gz" -C package .
+          sha256sum "sstd-amd64-${release_tag}.tar.gz" > "sstd-amd64-${release_tag}.sha256"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: sstd-amd64-release
+          path: |
+            sstd-amd64-v*.tar.gz
+            sstd-amd64-v*.sha256
+
+  package-aarch64:
+    needs: [test, prepare]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install cross compiler
+        run: sudo apt-get update && sudo apt-get install -y g++-aarch64-linux-gnu
+
+      - name: Build aarch64 package
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+          cmake --build build --parallel
+          mkdir -p package
+          cp build/sstd package/sstd
+          cp deploy/sstd.service deploy/deploy.sh package/
+          chmod 0755 package/sstd package/deploy.sh
+          release_tag="${{ needs.prepare.outputs.release_tag }}"
+          tar -czf "sstd-aarch64-${release_tag}.tar.gz" -C package .
+          sha256sum "sstd-aarch64-${release_tag}.tar.gz" > "sstd-aarch64-${release_tag}.sha256"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: sstd-aarch64-release
+          path: |
+            sstd-aarch64-v*.tar.gz
+            sstd-aarch64-v*.sha256
+
+  publish:
+    needs: [prepare, package-amd64, package-aarch64]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download amd64 package
+        uses: actions/download-artifact@v4
+        with:
+          name: sstd-amd64-release
+          path: release-assets
+
+      - name: Download aarch64 package
+        uses: actions/download-artifact@v4
+        with:
+          name: sstd-aarch64-release
+          path: release-assets
+
+      - name: Generate release metadata
+        working-directory: release-assets
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          sha256sum sstd-*.tar.gz > SHA256SUMS
+          cat > release-manifest.json <<EOF
+          {
+            "version": "${RELEASE_TAG}",
+            "commit": "${GITHUB_SHA}",
+            "protocol_version": "2.0",
+            "assets": [
+              "sstd-amd64-${RELEASE_TAG}.tar.gz",
+              "sstd-aarch64-${RELEASE_TAG}.tar.gz"
+            ]
+          }
+          EOF
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          gh release create "${RELEASE_TAG}" release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "SSTD ${RELEASE_TAG}" \
+            --generate-notes
+
+      - name: Trigger Jenkins deployment
+        env:
+          JENKINS_URL: ${{ secrets.JENKINS_URL }}
+          JENKINS_USER: ${{ secrets.JENKINS_USER }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: |
+          test -n "$JENKINS_URL"
+          curl --fail --show-error --request POST \
+            --user "$JENKINS_USER:$JENKINS_API_TOKEN" \
+            --data-urlencode "RELEASE_TAG=${RELEASE_TAG}" \
+            --data-urlencode "RELEASE_COMMIT=${GITHUB_SHA}" \
+            "$JENKINS_URL/job/sstd-deploy/buildWithParameters"

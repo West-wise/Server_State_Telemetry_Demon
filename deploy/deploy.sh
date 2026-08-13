@@ -24,5 +24,21 @@ install -m 0644 "$service_source" "$service_target"
 
 systemctl daemon-reload
 systemctl enable sstd.service
-systemctl restart sstd.service
-systemctl is-active --quiet sstd.service
+
+rollback() {
+  if [ -f "${binary_target}.previous" ]; then
+    echo 'Deployment health check failed; restoring previous binary.' >&2
+    install -m 0755 "${binary_target}.previous" "$binary_target"
+    systemctl restart sstd.service || true
+  fi
+}
+
+if ! systemctl restart sstd.service; then
+  rollback
+  exit 1
+fi
+
+if ! systemctl is-active --quiet sstd.service; then
+  rollback
+  exit 1
+fi
