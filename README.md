@@ -12,6 +12,11 @@ C++17로 작성된 경량 시스템 상태 모니터링 데몬입니다.
 
 ## 📦 퀵 스타트
 
+PR과 `main` push에서는 자동 빌드·테스트를 수행합니다. 정식 버전은 원하는 시점에
+Actions의 `Release SSTD`를 `main`에서 수동 실행하여 발행합니다. Jenkins 운영 배포는
+`deploy` 옵션을 선택한 경우에만 실행됩니다(기본값 OFF).
+자세한 절차는 [릴리즈 안내](docs/RELEASE.md)를 참고하세요.
+
 ### 빌드
 ```bash
 mkdir build && cd build
