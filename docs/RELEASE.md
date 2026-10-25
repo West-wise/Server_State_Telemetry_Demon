@@ -2,12 +2,19 @@
 
 ## 검증과 발행
 
-- `.github/workflows/ci.yml`은 `main` 대상 PR과 `main` push에서 빌드·테스트를 수행한다.
+- `.github/workflows/ci.yml`은 `main`·`dev` 대상 PR과 두 브랜치의 push에서 기존 멀티 클라이언트 테스트와 amd64/aarch64 빌드를 수행한다.
   CI artifact는 검증용이며 정식 Release가 아니다.
+- 변경 파일이 모두 `docs/**` 또는 `**/*.md`에 해당하면 CI workflow를 실행하지 않는다.
+  코드·설정·테스트·workflow 파일이 함께 바뀌면 CI를 실행한다. `docs`와 `docs/*` 브랜치로의 push는 실행 대상이 아니다.
 - `.github/workflows/release.yml`은 사람이 Actions에서 수동 실행한다.
   PR, 브랜치 push, 태그 push만으로 정식 Release를 생성하지 않는다.
 - 실행 브랜치는 `main`이어야 한다. 다른 브랜치나 태그에서는 첫 단계가 실패하고
   패키징·발행·배포로 진행하지 않는다.
+
+CI는 `main` 병합 전 PR에서도 실행되며, push 이벤트는 직접 push와 PR 병합을 구분하지 않는다.
+정식 Release와 Jenkins 배포는 CI 성공이나 병합만으로 자동 실행되지 않는다.
+문서 변경에도 CI 성공을 필수로 요구하는 브랜치 규칙을 추가하면, 경로 필터로 생략된
+검사가 Pending에 머물 수 있으므로 해당 규칙과 함께 검토해야 한다.
 
 ## 발행 절차
 
