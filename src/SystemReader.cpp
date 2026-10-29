@@ -2,6 +2,9 @@
 #include "Config.hpp"
 #include "Logger.hpp"
 #include "utility.hpp"
+#include <algorithm>
+#include <cmath>
+#include <ctime>
 #include <charconv>
 #include <climits>
 #include <cstring>
@@ -45,6 +48,7 @@ SystemReader::~SystemReader() { stop(); }
 void SystemReader::start() {
   if (running_)
     return;
+  daemon_cpu_prev_valid_ = false;
   running_ = true;
   collector_thread_ = std::thread(&SystemReader::updateLoop, this);
 }
@@ -75,6 +79,7 @@ void SystemReader::updateLoop() {
       // 데이터 수집
       parseProcStat(next_stats); // CPU info
       parseMemInfo(next_stats);  // RAM info
+      collectDaemonCpuUsage(next_stats);
       getNetDevInfo(next_stats);
       networkConnectedClients(next_stats); // network connected clients
       numberOfProcess(next_stats);         // number of process
@@ -176,6 +181,52 @@ void SystemReader::parseMemInfo(SystemStats &out) {
     uint64_t used = total_mem - available_mem;
     double usage = 100.0 * used / total_mem;
     out.mem_usage = static_cast<uint8_t>(usage);
+    parseDaemonMemUsage(out, total_mem);
+  }
+}
+
+void SystemReader::collectDaemonCpuUsage(SystemStats &out) {
+  timespec cpu_time{};
+  const long cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
+  if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &cpu_time) != 0 || cpu_count <= 0) {
+    daemon_cpu_prev_valid_ = false;
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  const double cpu_seconds = static_cast<double>(cpu_time.tv_sec) +
+                             static_cast<double>(cpu_time.tv_nsec) / 1e9;
+  if (daemon_cpu_prev_valid_) {
+    const double elapsed = std::chrono::duration<double>(now - prev_daemon_cpu_tp_).count();
+    const double used = cpu_seconds - prev_daemon_cpu_seconds_;
+    if (elapsed > 0 && used >= 0) {
+      const double usage = 10000.0 * used / elapsed / cpu_count;
+      out.daemon_cpu_usage = static_cast<uint16_t>(
+          std::lround(std::clamp(usage, 0.0, 10000.0)));
+    }
+  }
+  prev_daemon_cpu_seconds_ = cpu_seconds;
+  prev_daemon_cpu_tp_ = now;
+  daemon_cpu_prev_valid_ = true;
+}
+
+void SystemReader::parseDaemonMemUsage(SystemStats &out, uint64_t total_mem_kb) {
+  std::ifstream file("/proc/self/status");
+  std::string line;
+  while (std::getline(file, line)) {
+    std::istringstream iss(line);
+    std::string key;
+    iss >> key;
+    if (key != "VmRSS:")
+      continue;
+    uint64_t rss_kb = 0;
+    std::string unit;
+    if (iss >> rss_kb >> unit && unit == "kB" && total_mem_kb > 0) {
+      const double usage = 10000.0 * rss_kb / total_mem_kb;
+      out.daemon_mem_usage = static_cast<uint16_t>(
+          std::lround(std::clamp(usage, 0.0, 10000.0)));
+    }
+    return;
   }
 }
 

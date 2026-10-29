@@ -44,6 +44,10 @@ private:
   } prev_cpu_{};
   bool cpu_prev_valid_{false};
 
+  bool daemon_cpu_prev_valid_{false};
+  double prev_daemon_cpu_seconds_{0};
+  std::chrono::steady_clock::time_point prev_daemon_cpu_tp_{};
+
   // 네트워크 정보 관련
   struct NetCounter {
     uint64_t rx_bytes{0}, rx_packets{0}, rx_errs{0}, rx_drop{0};
@@ -55,6 +59,8 @@ private:
   void updateLoop();
   void parseProcStat(SystemStats &stats);
   void parseMemInfo(SystemStats &stats);
+  void collectDaemonCpuUsage(SystemStats &stats);
+  void parseDaemonMemUsage(SystemStats &stats, uint64_t total_mem_kb);
   void parseDiskUsage(SystemStats &stats); // Optional
   void parseUptime(SystemStats &stats);
   void getNetDevInfo(SystemStats &stats);
