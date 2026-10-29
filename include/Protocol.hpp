@@ -1,10 +1,12 @@
 #ifndef PROTOCOL_HPP
 #define PROTOCOL_HPP
 #include <cstdint>
+#include <cstddef>
 #include <string>
 
 namespace SST {
 constexpr uint32_t MAGIC_NUMBER = 0x53535444; // SSTD
+constexpr uint16_t USAGE_UNAVAILABLE = 0xFFFF;
 
 enum class MessageType : uint8_t {
   REQ_Connect = 0x01,    // 연결요청
@@ -69,11 +71,17 @@ struct SystemStats {
   fdInfo fd_info;
 
   DiskSummary disk_info;
+
+  // 0.01% units, 0..10000; USAGE_UNAVAILABLE when not measured.
+  uint16_t daemon_cpu_usage = USAGE_UNAVAILABLE;
+  uint16_t daemon_mem_usage = USAGE_UNAVAILABLE;
 };
 #pragma pack(pop)
 
 static_assert(sizeof(SecureHeader) == 24, "SecureHeader size mismatch");
-static_assert(sizeof(SystemStats) == 134, "SystemStats size mismatch");
+static_assert(sizeof(SystemStats) == 138, "SystemStats size mismatch");
+static_assert(offsetof(SystemStats, daemon_cpu_usage) == 134);
+static_assert(offsetof(SystemStats, daemon_mem_usage) == 136);
 } // namespace SST
 
 #endif // PROTOCOL_HPP

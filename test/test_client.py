@@ -142,9 +142,12 @@ HEADER_FMT  = '<IBBHIQI'
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
 assert HEADER_SIZE == 24, f"Header size mismatch: {HEADER_SIZE}"
 
-STATS_FMT  = '<HHBBQIIIQIIIIIHHIIIQQQQQQQQ'
+STATS_FMT  = '<HHBBQIIIQIIIIIHHIIIQQQQQQQQHH'
 STATS_SIZE = struct.calcsize(STATS_FMT)
-assert STATS_SIZE == 134, f"Stats size mismatch: {STATS_SIZE}"
+assert STATS_SIZE == 138, f"Stats size mismatch: {STATS_SIZE}"
+
+def format_daemon_usage(value):
+    return 'N/A' if value == 0xFFFF else f'{value / 100:.2f}%'
 
 # ─── 클라이언트 ───────────────────────────────────────────────────────────────
 class SSTDClient:
@@ -275,6 +278,8 @@ class SSTDClient:
         print(f"========== System Telemetry (ID: {valid_mask:04x}) ==========")
         print(f" Uptime: {uptime}s")
         print(f" CPU: {cpu}% | MEM: {mem}%")
+        print(f" SSTD CPU: {format_daemon_usage(unpacked[27])} | "
+              f"MEM: {format_daemon_usage(unpacked[28])}")
         print("-" * 50)
         print(f" [Network]    RX          TX")
         print(f" Bytes/s      {rx_bps:<10}  {tx_bps:<10}")

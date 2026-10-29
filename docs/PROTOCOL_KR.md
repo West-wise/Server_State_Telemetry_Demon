@@ -112,7 +112,7 @@ Noise 핸드셰이크 완료 후, 클라이언트가 암호화 채널 안에서 
 
 1. 서버가 `SystemReader`를 통해 `SystemStats`를 수집합니다.
 2. `Authenticated` 상태인 각 클라이언트에 대해:
-   - SSTD 패킷 생성: `type = 0x11`, `body = SystemStats (134바이트)`
+   - SSTD 패킷 생성: `type = 0x11`, `body = SystemStats (138바이트)`
    - Noise 세션으로 암호화 (ChaCha20-Poly1305)
    - 4바이트 리틀 엔디안 길이 접두사로 프레이밍
    - 클라이언트 쓰기 버퍼에 큐잉
@@ -150,7 +150,7 @@ Noise 핸드셰이크 완료 후, 클라이언트가 암호화 채널 안에서 
 | `uint64_t` | `total_boot` | `/boot` 전체 바이트 |
 | `uint64_t` | `used_boot` | `/boot` 사용 바이트 |
 
-### 6.4. SystemStats (134바이트) — `RES_SystemStat`의 바디
+### 6.4. SystemStats (138바이트) — `RES_SystemStat`의 바디
 
 | 오프셋 | 타입 | 필드명 | 설명 |
 | ------ | ---- | ------ | ---- |
@@ -167,8 +167,34 @@ Noise 핸드셰이크 완료 후, 클라이언트가 암호화 채널 안에서 
 | 58 | `uint32_t` | `uptime_secs` | 시스템 가동 시간 (초) |
 | 62 | `fdInfo` | `fd_info` | 파일 디스크립터 정보 (8바이트) |
 | 70 | `DiskSummary` | `disk_info` | 마운트 포인트별 디스크 사용량 (64바이트) |
+| 134 | `uint16_t` | `daemon_cpu_usage` | SSTD 프로세스 CPU 점유율, 0.01% 단위 |
+| 136 | `uint16_t` | `daemon_mem_usage` | SSTD 상주 메모리 점유율, 0.01% 단위 |
 
-**합계: 134바이트** (`static_assert` 검증됨)
+**합계: 138바이트** (`static_assert` 검증됨)
+
+데몬 필드는 `0..10000`을 0.00–100.00%로 해석하며, 0.01% 단위로 반올림합니다.
+`65535` (`0xFFFF`)는 미측정 또는 측정 실패입니다. 시작·재시작 후 첫 CPU
+샘플도 미측정입니다. 실제 0%와 구분하며, 기존 `valid_mask`는 새 필드의
+유효성을 나타내지 않습니다. 기존 수집 루프에서 함께 갱신합니다.
+
+- CPU: `100 × 프로세스 CPU 시간 증가량 / 실제 경과 시간 / 온라인 CPU 수`.
+  `CLOCK_PROCESS_CPUTIME_ID`로 SSTD의 모든 스레드를 합산하며 자식 프로세스는
+  제외합니다. 경과 시간은 단조 시계를 사용합니다. 4코어 서버에서 한 코어를
+  완전히 사용하면 25.00% (`2500`)입니다.
+- 메모리: `/proc/self/status`의 `VmRSS / /proc/meminfo`의 `MemTotal × 100`.
+  두 값은 kB 단위입니다. RSS는 공유 상주 페이지를 포함하는 커널의 근사값이며,
+  전용 메모리나 최대 사용량이 아닙니다.
+- 분모는 데몬에서 보이는 호스트 자원입니다. 컨테이너의 cgroup 제한을 기준으로
+  계산하지 않습니다. 결과는 100.00% 이하로 제한합니다.
+
+필드는 본문 끝에 추가하며 기존 0–133바이트의 배치는 유지합니다. 헤더 버전은
+`0x01`을 유지하고 `body_len`으로 기존 134바이트와 신규 138바이트를 구분합니다.
+본문을 134바이트로 고정해 읽는 클라이언트는 배포 전에 수정해야 합니다.
+평문은 162바이트, 암호화 전송 프레임은 `4 + 162 + 16 = 182`바이트입니다.
+Python 수신 예제는 신규 138바이트 본문을 사용합니다.
+
+근거: [프로세스 CPU 시계](https://man7.org/linux/man-pages/man2/clock_gettime.2.html),
+[Linux proc 카운터](https://www.kernel.org/doc/html/latest/filesystems/proc.html).
 
 ---
 

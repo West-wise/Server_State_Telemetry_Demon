@@ -61,3 +61,16 @@ target_link_libraries(sstd PRIVATE
     Threads::Threads
     ${SODIUM_LIB_PATH}
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(test_daemon_metrics
+        test/test_daemon_metrics.cpp
+        src/qrcodegen.cpp
+        src/SystemReader.cpp
+        src/PacketUtil.cpp
+        src/utility.cpp
+    )
+    target_link_libraries(test_daemon_metrics PRIVATE Threads::Threads)
+    add_test(NAME daemon_metrics COMMAND test_daemon_metrics)
+endif()
