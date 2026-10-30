@@ -111,7 +111,7 @@ PY
                     # 원격 임시 디렉터리에 실행 파일과 배포 스크립트를 전송합니다.
                     remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
                     trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
-                    scp artifact/arm64/sstd deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    scp artifact/arm64/sstd artifact/arm64/sstd.service artifact/arm64/deploy.sh "$target:$remote_dir/"
                     ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/sstd' '$remote_dir/sstd.service'"
                     # systemd 서비스가 정상적으로 실행되었는지 확인합니다.
                     ssh "$target" "sudo systemctl is-active --quiet sstd.service"
@@ -128,7 +128,7 @@ PY
                     target="${DEPLOY_USER}@158.180.84.177"
                     remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
                     trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
-                    scp artifact/arm64/sstd deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    scp artifact/arm64/sstd artifact/arm64/sstd.service artifact/arm64/deploy.sh "$target:$remote_dir/"
                     ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/sstd' '$remote_dir/sstd.service'"
                     ssh "$target" "sudo systemctl is-active --quiet sstd.service"
                     '''
@@ -144,7 +144,7 @@ PY
                     target="${DEPLOY_USER}@134.185.113.76"
                     remote_dir=$(ssh "$target" 'mktemp -d /tmp/sstd-deploy.XXXXXX')
                     trap 'ssh "$target" "rm -rf '\''$remote_dir'\''"' EXIT
-                    scp artifact/amd64/sstd deploy/sstd.service deploy/deploy.sh "$target:$remote_dir/"
+                    scp artifact/amd64/sstd artifact/amd64/sstd.service artifact/amd64/deploy.sh "$target:$remote_dir/"
                     ssh "$target" "sudo bash '$remote_dir/deploy.sh' '$remote_dir/sstd' '$remote_dir/sstd.service'"
                     ssh "$target" "sudo systemctl is-active --quiet sstd.service"
                     '''
