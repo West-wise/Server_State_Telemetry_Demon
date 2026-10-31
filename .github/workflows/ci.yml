@@ -28,6 +28,9 @@ jobs:
       - name: Install Python Dependencies
         run: pip install cryptography
 
+      - name: Validate deployment package paths
+        run: python test/test_release_deploy_paths.py
+
       - name: Build Project
         run: |
           mkdir -p build

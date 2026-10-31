@@ -40,6 +40,12 @@ Release 생성 후 Jenkins 호출이 실패하더라도 생성된 Release는 남
 같은 버전을 다시 발행하지 말고 기존 Release와 Jenkins 실행 여부를 확인한 뒤 배포를 재개한다.
 검증 실패를 우회하거나 기존 태그·Release를 삭제해 재발행하지 않는다.
 
+Jenkins는 소스를 체크아웃하지 않으며, 실행 파일·서비스 파일·배포 스크립트를 모두
+동일 Release 패키지의 `artifact/arm64/` 또는 `artifact/amd64/`에서 사용한다.
+경로 회귀 검증은 Linux에서 `python3 test/test_release_deploy_paths.py`로 실행한다.
+다운로드한 두 아키텍처의 Release 패키지 디렉터리를 인자로 전달하면 실제 패키지로
+검증할 수 있다. 테스트의 SSH·SCP는 대역이며 서버에 접속하거나 배포하지 않는다.
+
 기존 `deploy/deploy.sh`는 서비스 재시작 실패 시 이전 바이너리 복원을 시도한다.
 이는 전체 설정·서비스 파일의 롤백을 보장하지 않으므로 운영자가 결과를 확인한다.
 이 workflow 변경을 되돌릴 때는 `main` push 자동 발행과 Jenkins 자동 호출이 다시 활성화될 수
