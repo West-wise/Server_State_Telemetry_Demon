@@ -148,7 +148,7 @@ For each mount point, the structure contains a total and used byte count:
 | `uint64_t` | `total_var`, `used_var` |
 | `uint64_t` | `total_boot`, `used_boot` |
 
-### 6.4. `SystemStats` — 134 bytes
+### 6.4. `SystemStats` — 138 bytes
 
 | Offset | Type | Field | Description |
 | ---: | --- | --- | --- |
@@ -165,9 +165,35 @@ For each mount point, the structure contains a total and used byte count:
 | 58 | `uint32_t` | `uptime_secs` | System uptime in seconds |
 | 62 | `fdInfo` | `fd_info` | File descriptor information |
 | 70 | `DiskSummary` | `disk_info` | Disk usage for supported mount points |
+| 134 | `uint16_t` | `daemon_cpu_usage` | SSTD process CPU usage in 0.01% units |
+| 136 | `uint16_t` | `daemon_mem_usage` | SSTD resident memory usage in 0.01% units |
 
 Disk information is refreshed every 10 seconds. The other collected values
 are updated on the one-second collector cycle.
+
+The daemon fields range from `0` to `10000` (0.00–100.00%), rounded to the
+nearest 0.01%. `65535` (`0xFFFF`) means unavailable, including the first CPU
+sample after start/restart or a failed measurement. A valid zero is distinct
+from unavailable; the existing `valid_mask` does not describe these fields.
+
+- CPU: `100 × delta(process CPU seconds) / elapsed seconds / online CPU count`.
+  `CLOCK_PROCESS_CPUTIME_ID` includes all SSTD threads, excludes child processes,
+  and is sampled against a monotonic elapsed time. One fully occupied core on
+  a four-core host is 25.00% (`2500`).
+- Memory: `100 × VmRSS / MemTotal`, both in kB, from `/proc/self/status` and
+  `/proc/meminfo`. RSS includes shared resident pages and is an approximate
+  kernel counter, not private memory or peak RSS.
+- Denominators describe host resources visible to the daemon, not container
+  cgroup CPU/memory limits. Values are clamped to 100.00%.
+
+The new fields are appended; offsets 0–133 are unchanged. The header version
+remains `0x01`; `body_len` distinguishes the former 134-byte body from the new
+138-byte body. Clients that require exactly 134 bytes must be updated before
+deployment. Plaintext is 162 bytes and the encrypted transport frame is
+`4 + 162 + 16 = 182` bytes. The Python example expects the new 138-byte body.
+
+References: [process CPU clock](https://man7.org/linux/man-pages/man2/clock_gettime.2.html)
+and [Linux proc counters](https://www.kernel.org/doc/html/latest/filesystems/proc.html).
 
 ## 7. Connection URI
 

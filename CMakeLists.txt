@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # 프로젝트 이름 및 버전 설정
-project(SSTD VERSION 2.0.0 LANGUAGES CXX)
+project(SSTD VERSION 2.1.1 LANGUAGES CXX)
 
 # C++17 표준 사용 설정
 set (CMAKE_CXX_STANDARD 17)
@@ -61,3 +61,16 @@ target_link_libraries(sstd PRIVATE
     Threads::Threads
     ${SODIUM_LIB_PATH}
 )
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(test_daemon_metrics
+        test/test_daemon_metrics.cpp
+        src/qrcodegen.cpp
+        src/SystemReader.cpp
+        src/PacketUtil.cpp
+        src/utility.cpp
+    )
+    target_link_libraries(test_daemon_metrics PRIVATE Threads::Threads)
+    add_test(NAME daemon_metrics COMMAND test_daemon_metrics)
+endif()

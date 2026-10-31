@@ -155,6 +155,14 @@ def run_client_instance(idx, stop_event, shared, server_pub):
                 if magic != MAGIC_NUMBER:
                     with shared.lock: shared.err_cnt[idx] += 1
                     break
+                header = struct.unpack(HEADER_FMT, pt[:HEADER_SIZE])
+                if header[2] != 0x11 or header[-1] != 138 or len(pt) != HEADER_SIZE + 138:
+                    with shared.lock: shared.err_cnt[idx] += 1
+                    break
+                daemon_usage = struct.unpack_from('<HH', pt, HEADER_SIZE + 134)
+                if any(value > 10000 and value != 0xFFFF for value in daemon_usage):
+                    with shared.lock: shared.err_cnt[idx] += 1
+                    break
                 with shared.lock: shared.ok_cnt[idx] += 1
             except Exception:
                 with shared.lock: shared.err_cnt[idx] += 1
