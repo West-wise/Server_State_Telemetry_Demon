@@ -4,7 +4,7 @@ Licensing information for SSTD and bundled dependencies is available in
 `LICENSE`. The vendored spdlog and bundled fmt components are distributed
 under the MIT License; see `lib/spdlog/LICENSE` for the dependency notice.
 
-![Version](https://img.shields.io/badge/version-2.1.0-blue) ![Language](https://img.shields.io/badge/language-C%2B%2B17-orange) ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-2.1.1-blue) ![Language](https://img.shields.io/badge/language-C%2B%2B17-orange) ![License](https://img.shields.io/badge/license-MIT-green)
 
 C++17로 작성된 경량 시스템 상태 모니터링 데몬입니다.
 
@@ -145,7 +145,7 @@ SSTD_HOST=127.0.0.1 SSTD_PORT=41924 SSTD_KEY_PATH=/etc/sstd/sstd.key .venv/bin/p
 
 전송은 `[4B LE 암호문 길이][암호문]`이며 복호화 결과는
 `SecureHeader(24B) + SystemStats(138B)`입니다. 인증 태그를 포함한 상태 프레임은 182B입니다.
-프로젝트 버전은 2.1.0이지만 패킷 헤더의 wire version은 `0x01`입니다.
+프로젝트 버전은 2.1.1이지만 패킷 헤더의 wire version은 `0x01`입니다.
 [영문 명세](docs/PROTOCOL.md), [한글 명세](docs/PROTOCOL_KR.md),
 [구현 검토](REVIEW.md), [프로젝트 설명](docs/PROJECT_DESCRIPTION_KR.md)을 참고하세요.
 
